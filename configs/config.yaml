@@ -1,11 +1,11 @@
 # Data
-data_path: "data/AirlineTweets.csv"
+data_path: "data/Tweets.csv"
 target_column: "airline_sentiment"
 text_column: "text"
 confidence_columns:
   sentiment: "airline_sentiment_confidence"
   reason: "negativereason_confidence"
-confidence_threshold: 0.7  # Filter labels with confidence < this value
+confidence_threshold: 0.7  # Range: [0.0, 1.0]
 
 # Preprocessing
 vectorizer: "tfidf"  # or "count"
@@ -13,7 +13,7 @@ max_features: 2000
 ngram_range: [1, 2]
 lowercase: true
 remove_urls: true
-remove_mentions: false  # Keep @airline mentions — they may be informative
+remove_mentions: false  # Separate @airline from @user mentions
 lemmatize: false  # Set true + install nltk for lemmatization
 
 # Model
@@ -33,4 +33,4 @@ use_shap: false  # Set true to enable SHAP (slower)
 
 # API / Dashboard
 api_port: 8000
-dashboard_title: "✈️ Airline Sentiment Predictor"
+dashboard_title: "Airline Sentiment Predictor"

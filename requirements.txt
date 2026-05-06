@@ -7,8 +7,7 @@ seaborn>=0.13.0
 pyyaml>=6.0.1
 
 # TEXT PREPROCESSING (optional, for lemmatization)
-nltk>=3.8.1
-# After install: python -c "import nltk; nltk.download('punkt'); nltk.download('wordnet'); nltk.download('omw-1.4')"
+nltk>=3.8.1  # Required if lemmatize=true in config
 
 # API SUPPORT (optional: FastAPI + Uvicorn)
 # fastapi>=0.104.0
