@@ -1,0 +1,36 @@
+# Data
+data_path: "data/AirlineTweets.csv"
+target_column: "airline_sentiment"
+text_column: "text"
+confidence_columns:
+  sentiment: "airline_sentiment_confidence"
+  reason: "negativereason_confidence"
+confidence_threshold: 0.7  # Filter labels with confidence < this value
+
+# Preprocessing
+vectorizer: "tfidf"  # or "count"
+max_features: 2000
+ngram_range: [1, 2]
+lowercase: true
+remove_urls: true
+remove_mentions: false  # Keep @airline mentions — they may be informative
+lemmatize: false  # Set true + install nltk for lemmatization
+
+# Model
+model_type: "logistic_regression"
+max_iter: 500
+class_weight: "balanced"  # or "none"
+use_confidence_weights: true  # Use sample_weight=confidence in fit()
+
+# Evaluation
+random_state: 42
+test_size: 0.25
+metrics: ["accuracy", "f1_macro", "f1_weighted", "roc_auc_ovo"]
+
+# Interpretability
+top_words_threshold: 2.0  # Show words with |weight| > threshold
+use_shap: false  # Set true to enable SHAP (slower)
+
+# API / Dashboard
+api_port: 8000
+dashboard_title: "✈️ Airline Sentiment Predictor"
