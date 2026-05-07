@@ -14,7 +14,10 @@ ngram_range: [1, 2]
 lowercase: true
 remove_urls: true
 remove_mentions: false  # Separate @airline from @user mentions
-lemmatize: false  # Set true + install nltk for lemmatization
+remove_special_chars: true  # Remove punctuation except !?. (handled in clean_text)
+remove_extra_whitespace: true  # Collapse multiple spaces
+remove_stopwords: false  # For tweets, stopwords may carry sentiment signal
+lemmatize: false  # Set true to enable lemmatization (requires nltk)
 
 # Model
 model_type: "logistic_regression"
