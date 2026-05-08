@@ -25,6 +25,18 @@ max_iter: 500
 class_weight: "balanced"  # or "none"
 use_confidence_weights: true  # Use sample_weight=confidence in fit()
 
+# Solver/penalty configuration for LogisticRegression
+# IMPORTANT: Not all solver/penalty combinations are valid:
+#   • solver="lbfgs": supports penalty="l2" or "none" (default, good for multiclass)
+#   • solver="liblinear": supports penalty="l1" or "l2" (good for small datasets)
+#   • solver="saga": supports penalty="l1", "l2", or "elasticnet" (supports l1 + large datasets)
+#   • penalty="elasticnet": requires solver="saga" and l1_ratio parameter
+# See: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html
+solver: "lbfgs"  # or "liblinear", "saga"
+penalty: "l2"  # or "l1", "elasticnet"
+C: 1.0  # Inverse regularization strength. Smaller = stronger regularization
+l1_ratio: 0.5  # Only used when penalty="elasticnet". Range: [0.0, 1.0] (0=L2, 1=L1)
+
 # Evaluation
 random_state: 42
 test_size: 0.25

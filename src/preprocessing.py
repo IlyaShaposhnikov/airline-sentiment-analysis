@@ -2,6 +2,7 @@ import logging
 import re
 from typing import Union
 
+import numpy as np
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 
 from .utils.logging_config import setup_logger
@@ -154,13 +155,13 @@ def create_vectorizer(config: dict) -> Union[TfidfVectorizer, CountVectorizer]:
         return TfidfVectorizer(
             **common_params,
             sublinear_tf=True,  # Apply sublinear tf scaling: 1 + log(tf)
-            dtype=float,
+            dtype=np.float64,
         )
     elif vectorizer_type == "count":
         logger.info(
             f"Initializing CountVectorizer with params: {common_params}"
         )
-        return CountVectorizer(**common_params, dtype=int)
+        return CountVectorizer(**common_params, dtype=np.int64)
     else:
         raise ValueError(f"Unknown vectorizer type: {vectorizer_type}")
 
