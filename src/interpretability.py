@@ -338,17 +338,35 @@ def explain_prediction(
                 shap_vals = shap_result.get("values", None)
 
             if shap_vals is not None:
-                # Get feature names and create (word, shap_value) pairs
+                # Get feature names
                 try:
                     feature_names = vectorizer.get_feature_names_out()
                 except AttributeError:
                     feature_names = np.array(vectorizer.get_feature_names())
 
-                # Only include non-zero contributions
+                # Convert to flat array and ensure same length as feature_names
+                shap_vals_flat = np.asarray(shap_vals).flatten()
+
+                # Truncate to match feature_names length (safest approach)
+                n_features = min(len(feature_names), len(shap_vals_flat))
+                if len(shap_vals_flat) != len(feature_names):
+                    logger.debug(
+                        f"SHAP values length ({len(shap_vals_flat)}) != "
+                        f"feature_names length ({len(feature_names)}). "
+                        f"Truncating to {n_features} features."
+                    )
+
+                shap_vals_flat = shap_vals_flat[:n_features]
+                feature_names = feature_names[:n_features]
+
+                # Filter non-zero contributions
+                nonzero_mask = np.abs(shap_vals_flat) > 1e-10
+                nonzero_indices = np.where(nonzero_mask)[0]
+
+                # Build contributors list
                 contributors = [
-                    (feature_names[i], float(shap_vals[i]))
-                    for i in range(len(shap_vals))
-                    if shap_vals[i] != 0
+                    (feature_names[i], float(shap_vals_flat[i]))
+                    for i in nonzero_indices
                 ]
 
                 # Sort by absolute value and take top N
@@ -430,9 +448,8 @@ def plot_shap_summary(
 
         # Create explainer
         # Use a subset of X as background for efficiency
-        if random_state is not None:
-            np.random.seed(random_state)
-        background_idx = np.random.choice(
+        rng = np.random.default_rng(random_state)
+        background_idx = rng.choice(
             len(texts), min(100, len(texts)), replace=False
         )
         background = X[background_idx]
