@@ -37,6 +37,19 @@ penalty: "l2"  # or "l1", "elasticnet"
 C: 1.0  # Inverse regularization strength. Smaller = stronger regularization
 l1_ratio: 0.5  # Only used when penalty="elasticnet". Range: [0.0, 1.0] (0=L2, 1=L1)
 
+# Metrics / Reporting
+metrics_config:
+  include_confusion_matrix: true
+  include_classification_report: true
+  export_formats: ["json", "csv"]  # Options: json, csv
+  plot_settings:
+    normalize: true  # Show rates instead of counts
+    cmap: "Blues"  # Matplotlib colormap
+    figsize: [8, 6]  # inches
+  top_misclassified:
+    n_top: 10  # Number of examples to extract
+    include_text: true # Include original text in report
+
 # Evaluation
 random_state: 42
 test_size: 0.25

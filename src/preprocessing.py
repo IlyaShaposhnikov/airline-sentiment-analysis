@@ -9,6 +9,8 @@ from .utils.logging_config import setup_logger
 
 logger = setup_logger(__name__)
 
+_NLTK_INITIALIZED = False
+
 
 def clean_text(
     text: str,
@@ -48,18 +50,21 @@ def clean_text(
 
 def _ensure_nltk_resources():
     """Download required NLTK resources if not already present."""
+    global _NLTK_INITIALIZED
+
+    if _NLTK_INITIALIZED:
+        return
+
     import nltk
-    resources = [
-        ("tokenizers/punkt", "punkt"),
-        ("corpora/wordnet", "wordnet"),
-        ("corpora/omw-1.4", "omw-1.4")
-    ]
-    for path, name in resources:
+    resources = ['punkt', 'wordnet', 'omw-1.4']
+    for name in resources:
         try:
-            nltk.data.find(path)
-        except LookupError:
-            logger.info(f"Downloading NLTK resource: {name}")
-            nltk.download(name, quiet=True)
+            nltk.download(name, quiet=True, raise_on_error=True)
+            logger.debug(f"NLTK resource ready: {name}")
+        except Exception as e:
+            logger.warning(f"Could not ensure NLTK '{name}': {e}")
+
+    _NLTK_INITIALIZED = True
 
 
 def lemmatize_text(
