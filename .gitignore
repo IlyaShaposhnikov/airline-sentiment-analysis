@@ -33,6 +33,7 @@ env/
 data/*.csv
 !data/.gitkeep
 reports/
+scripts/
 
 # IDE
 .idea/

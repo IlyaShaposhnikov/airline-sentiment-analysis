@@ -56,8 +56,14 @@ test_size: 0.25
 metrics: ["accuracy", "f1_macro", "f1_weighted", "roc_auc_ovo"]
 
 # Interpretability
-top_words_threshold: 2.0  # Show words with |weight| > threshold
-use_shap: false  # Set true to enable SHAP (slower)
+interpretability_config:
+  top_words_threshold: 2.0      # Show words with |weight| > threshold
+  n_top_features: 20            # Number of top features to display
+  use_shap: false               # Set true to enable SHAP (requires shap package)
+  shap_background_samples: 100  # Number of samples for SHAP background data
+  plot_settings:
+    horizontal: true            # Horizontal bar chart for feature importance
+    figsize: [10, 8]
 
 # API / Dashboard
 api_port: 8000
