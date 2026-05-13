@@ -1,70 +1,101 @@
-# Data
-data_path: "data/Tweets.csv"
-target_column: "airline_sentiment"
-text_column: "text"
-confidence_columns:
-  sentiment: "airline_sentiment_confidence"
-  reason: "negativereason_confidence"
-confidence_threshold: 0.7  # Range: [0.0, 1.0]
+# DATA LOADING
+data:
+  path: "data/Tweets.csv"
+  target_column: "airline_sentiment"
+  text_column: "text"
+  confidence_columns:
+    sentiment: "airline_sentiment_confidence"
+    reason: "negativereason_confidence"
+  confidence_threshold: 0.7  # Range: [0.0, 1.0]
 
-# Preprocessing
-vectorizer: "tfidf"  # or "count"
-max_features: 2000
-ngram_range: [1, 2]
-lowercase: true
-remove_urls: true
-remove_mentions: false  # Separate @airline from @user mentions
-remove_special_chars: true  # Remove punctuation except !?. (handled in clean_text)
-remove_extra_whitespace: true  # Collapse multiple spaces
-remove_stopwords: false  # For tweets, stopwords may carry sentiment signal
-lemmatize: false  # Set true to enable lemmatization (requires nltk)
+# TEXT PREPROCESSING
+preprocessing:
+  vectorizer:
+    type: "tfidf"  # or "count"
+    max_features: 2000
+    ngram_range: [1, 2]
+    lowercase: true
+    stop_words: null  # or "english"
+  
+  cleaning:
+    lowercase: true
+    remove_urls: true
+    remove_mentions: false  # Keep @airline mentions
+    remove_special_chars: true  # Except !?. (handled in code)
+    remove_extra_whitespace: true
+  
+  nlp:
+    lemmatize: false  # Requires nltk
+    remove_stopwords: false  # Stopwords may carry sentiment in tweets
 
-# Model
-model_type: "logistic_regression"
-max_iter: 500
-class_weight: "balanced"  # or "none"
-use_confidence_weights: true  # Use sample_weight=confidence in fit()
+# MODEL CONFIGURATION
+model:
+  type: "logistic_regression"  # Currently only this is supported
+  training:
+    random_state: 42
+    max_iter: 500  # Positive integer; increase if convergence warnings occur
+    class_weight: "balanced"  # or "none"
+    use_confidence_weights: true  # Use sample_weight=confidence
+  
+  # Solver/penalty: see sklearn docs for valid combinations
+  # IMPORTANT: Not all solver/penalty combinations are valid:
+  #   • solver="lbfgs": supports penalty="l2" or "none" (default, good for multiclass)
+  #   • solver="liblinear": supports penalty="l1" or "l2" (good for small datasets)
+  #   • solver="saga": supports penalty="l1", "l2", or "elasticnet" (supports l1 + large datasets)
+  #   • penalty="elasticnet": requires solver="saga" and l1_ratio parameter
+  # See: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html
+  regularization:
+    solver: "lbfgs"  # Options: "lbfgs", "liblinear", "saga"
+    penalty: "l2"    # Options: "l2", "l1", "elasticnet", "none"
+    C: 1.0           # Inverse regularization strength
+    l1_ratio: 0.5    # Only used when penalty="elasticnet", range [0.0, 1.0]
 
-# Solver/penalty configuration for LogisticRegression
-# IMPORTANT: Not all solver/penalty combinations are valid:
-#   • solver="lbfgs": supports penalty="l2" or "none" (default, good for multiclass)
-#   • solver="liblinear": supports penalty="l1" or "l2" (good for small datasets)
-#   • solver="saga": supports penalty="l1", "l2", or "elasticnet" (supports l1 + large datasets)
-#   • penalty="elasticnet": requires solver="saga" and l1_ratio parameter
-# See: https://scikit-learn.org/stable/modules/generated/sklearn.linear_model.LogisticRegression.html
-solver: "lbfgs"  # or "liblinear", "saga"
-penalty: "l2"  # or "l1", "elasticnet"
-C: 1.0  # Inverse regularization strength. Smaller = stronger regularization
-l1_ratio: 0.5  # Only used when penalty="elasticnet". Range: [0.0, 1.0] (0=L2, 1=L1)
+# EVALUATION & METRICS
+evaluation:
+  split:
+    test_size: 0.25  # Range: (0.0, 1.0)
+    stratify: true  # Preserve class distribution
+  
+  metrics:
+    primary: ["accuracy", "f1_macro", "f1_weighted", "roc_auc_ovo"]
+  
+  reporting:
+    include_confusion_matrix: true
+    include_classification_report: true
+    export_formats: ["json", "csv"]
+    
+    plot_settings:
+      normalize: true  # Show rates instead of counts
+      cmap: "Blues"
+      figsize: [8, 6]
+    
+    misclassified_examples:
+      n_top: 10
+      include_text: true
 
-# Metrics / Reporting
-metrics_config:
-  include_confusion_matrix: true
-  include_classification_report: true
-  export_formats: ["json", "csv"]  # Options: json, csv
+# INTERPRETABILITY
+interpretability:
+  weight_based:
+    top_words_threshold: 2.0  # Show words with |weight| > threshold
+    n_top_features: 20
+  
+  shap:
+    enabled: false  # Requires shap package
+    background_samples: 100
+    random_state: 42  # For reproducible plots
+  
   plot_settings:
-    normalize: true  # Show rates instead of counts
-    cmap: "Blues"  # Matplotlib colormap
-    figsize: [8, 6]  # inches
-  top_misclassified:
-    n_top: 10  # Number of examples to extract
-    include_text: true # Include original text in report
-
-# Evaluation
-random_state: 42
-test_size: 0.25
-metrics: ["accuracy", "f1_macro", "f1_weighted", "roc_auc_ovo"]
-
-# Interpretability
-interpretability_config:
-  top_words_threshold: 2.0      # Show words with |weight| > threshold
-  n_top_features: 20            # Number of top features to display
-  use_shap: false               # Set true to enable SHAP (requires shap package)
-  shap_background_samples: 100  # Number of samples for SHAP background data
-  plot_settings:
-    horizontal: true            # Horizontal bar chart for feature importance
+    horizontal: true  # Horizontal bar chart for feature importance
     figsize: [10, 8]
 
-# API / Dashboard
-api_port: 8000
-dashboard_title: "Airline Sentiment Predictor"
+# SERVING / DASHBOARD
+serving:
+  api:
+    enabled: false
+    port: 8000
+    endpoint: "/predict"
+  
+  dashboard:
+    enabled: false
+    title: "Airline Sentiment Predictor"
+    framework: "streamlit"  # or "gradio"

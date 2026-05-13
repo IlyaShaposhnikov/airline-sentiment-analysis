@@ -113,20 +113,25 @@ def preprocess_text(
     config: dict,
 ) -> str:
     """Apply full preprocessing pipeline to a single text sample."""
+    cleaning_cfg = config.get("preprocessing", {}).get("cleaning", {})
+    nlp_cfg = config.get("preprocessing", {}).get("nlp", {})
     # Step 1: Basic cleaning
     cleaned = clean_text(
         text,
-        lowercase=config.get("lowercase", True),
-        remove_urls=config.get("remove_urls", True),
-        remove_mentions=config.get("remove_mentions", False),
-        remove_special_chars=config.get("remove_special_chars", True),
+        lowercase=cleaning_cfg.get("lowercase", True),
+        remove_urls=cleaning_cfg.get("remove_urls", True),
+        remove_mentions=cleaning_cfg.get("remove_mentions", False),
+        remove_special_chars=cleaning_cfg.get("remove_special_chars", True),
+        remove_extra_whitespace=cleaning_cfg.get(
+            "remove_extra_whitespace", True
+        ),
     )
 
     # Step 2: Optional lemmatization
-    if config.get("lemmatize", False):
+    if nlp_cfg.get("lemmatize", False):
         cleaned = lemmatize_text(
             cleaned,
-            remove_stopwords=config.get("remove_stopwords", False)
+            remove_stopwords=nlp_cfg.get("remove_stopwords", False)
         )
 
     return cleaned
@@ -134,21 +139,23 @@ def preprocess_text(
 
 def create_vectorizer(config: dict) -> Union[TfidfVectorizer, CountVectorizer]:
     """Initialize and return a vectorizer based on configuration."""
-    required_keys = ["vectorizer", "max_features", "ngram_range"]
-    missing = [k for k in required_keys if k not in config]
+    vectorizer_cfg = config.get("preprocessing", {}).get("vectorizer", {})
+    nlp_cfg = config.get("preprocessing", {}).get("nlp", {})
+    required_keys = ["type", "max_features", "ngram_range"]
+    missing = [k for k in required_keys if k not in vectorizer_cfg]
     if missing:
         raise ValueError(f"Missing required vectorizer config keys: {missing}")
 
-    vectorizer_type = config.get("vectorizer", "tfidf").lower()
+    vectorizer_type = vectorizer_cfg.get("type", "tfidf").lower()
 
     # Common parameters for both vectorizers
     common_params = {
-        "max_features": config.get("max_features", 2000),
-        "ngram_range": tuple(config.get("ngram_range", [1, 2])),
-        "lowercase": config.get("lowercase", True),
+        "max_features": vectorizer_cfg.get("max_features", 2000),
+        "ngram_range": tuple(vectorizer_cfg.get("ngram_range", [1, 2])),
+        "lowercase": vectorizer_cfg.get("lowercase", True),
         "stop_words": (
             "english"
-            if config.get("remove_stopwords", False)
+            if nlp_cfg.get("remove_stopwords", False)
             else None
         ),
     }

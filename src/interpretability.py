@@ -69,8 +69,15 @@ def get_top_features_by_weight(
             else str(class_label)
         )
 
-        # Get weights for this class
-        weights = coef[idx]
+        # Handle binary classification coef shape mismatch
+        if len(classes) == 2 and coef.shape[0] == 1:
+            # Binary: single row represents decision boundary
+            # Positive class (idx=1) = +coef[0]
+            # Negative class (idx=0) = -coef[0]
+            weights = coef[0] if idx == 1 else -coef[0]
+        else:
+            # Multiclass: normal access
+            weights = coef[idx]
 
         # Create (word, weight) pairs
         word_weights = list(zip(feature_names, weights))

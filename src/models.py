@@ -59,31 +59,37 @@ def _validate_solver_penalty(
 
 def create_model(config: dict) -> LogisticRegression:
     """Initialize LogisticRegression with parameters from config."""
-    required_keys = ["model_type", "max_iter"]
-    missing = [k for k in required_keys if k not in config]
-    if missing:
-        raise ValueError(f"Missing required model config keys: {missing}")
+    model_cfg = config.get("model", {})
+    training_cfg = model_cfg.get("training", {})
+    reg_cfg = model_cfg.get("regularization", {})
 
-    if config["model_type"] != "logistic_regression":
+    if "type" not in model_cfg:
+        raise ValueError("Missing required config key: model.type")
+    if "max_iter" not in training_cfg:
         raise ValueError(
-            f"Unsupported model_type: {config['model_type']}. "
+            "Missing required config key: model.training.max_iter"
+        )
+
+    if model_cfg["type"] != "logistic_regression":
+        raise ValueError(
+            f"Unsupported model_type: {model_cfg['type']}. "
             "Only 'logistic_regression' is supported in this version."
         )
 
     # Handle class_weight: "balanced", "none" → None, or dict
-    class_weight = config.get("class_weight", "balanced")
+    class_weight = training_cfg.get("class_weight", "balanced")
     if class_weight == "none":
         class_weight = None
 
     logger.info(
         f"Initializing LogisticRegression with: "
-        f"max_iter={config['max_iter']}, class_weight={class_weight}"
+        f"max_iter={training_cfg['max_iter']}, class_weight={class_weight}"
     )
 
     # Validate solver/penalty combination
-    solver = config.get("solver", "lbfgs")
-    penalty = config.get("penalty", "l2")
-    l1_ratio_config = config.get("l1_ratio", 0.5)
+    solver = reg_cfg.get("solver", "lbfgs")
+    penalty = reg_cfg.get("penalty", "l2")
+    l1_ratio_config = reg_cfg.get("l1_ratio", 0.5)
 
     _validate_solver_penalty(solver, penalty, l1_ratio_config)
 
@@ -92,22 +98,22 @@ def create_model(config: dict) -> LogisticRegression:
         C_val = np.inf   # C=np.inf means no regularization
     elif penalty == "l1":
         l1_ratio = 1.0   # 1.0 = pure L1
-        C_val = config.get("C", 1.0)
+        C_val = reg_cfg.get("C", 1.0)
     elif penalty == "l2":
         l1_ratio = 0.0   # 0.0 = pure L2 (explicit to avoid warning)
-        C_val = config.get("C", 1.0)
+        C_val = reg_cfg.get("C", 1.0)
     elif penalty == "elasticnet":
         l1_ratio = l1_ratio_config  # Use config value [0.0, 1.0]
-        C_val = config.get("C", 1.0)
+        C_val = reg_cfg.get("C", 1.0)
     else:
         # Fallback: default to L2
         l1_ratio = 0.0
-        C_val = config.get("C", 1.0)
+        C_val = reg_cfg.get("C", 1.0)
 
     model_kwargs = {
-        "max_iter": config["max_iter"],
+        "max_iter": training_cfg["max_iter"],
         "class_weight": class_weight,
-        "random_state": config.get("random_state", 42),
+        "random_state": training_cfg.get("random_state", 42),
         "solver": solver,
         "C": C_val,
     }
@@ -128,6 +134,9 @@ def train_model(
     Train LogisticRegression model
     with optional confidence-based sample weights.
     """
+    model_cfg = config.get("model", {})
+    training_cfg = model_cfg.get("training", {})
+
     # Input validation
     if X_train is None or y_train is None:
         raise ValueError("X_train and y_train cannot be None")
@@ -157,7 +166,7 @@ def train_model(
     model = create_model(config)
 
     # Confidence-aware training: prioritize high-confidence labels
-    if config.get(
+    if training_cfg.get(
         "use_confidence_weights", True
     ) and sample_weights is not None:
         logger.info(
@@ -180,6 +189,9 @@ def evaluate_model(
     labels: Optional[list] = None,
 ) -> dict:
     """Evaluate model on given data using metrics from config."""
+    eval_cfg = config.get("evaluation", {})
+    metrics_cfg = eval_cfg.get("metrics", {})
+    reporting_cfg = eval_cfg.get("reporting", {})
     # Input validation
     if X is None or y_true is None:
         raise ValueError("X and y_true cannot be None")
@@ -208,7 +220,7 @@ def evaluate_model(
     logger.info(f"Accuracy: {results['accuracy']:.4f}")
 
     # F1-score: support multiclass via average parameter
-    metrics = config.get("metrics", ["accuracy"])
+    metrics = metrics_cfg.get("primary", ["accuracy"])
     if "f1_macro" in metrics:
         results["f1_macro"] = f1_score(
             y_true, y_pred, average="macro", zero_division=0
@@ -242,7 +254,7 @@ def evaluate_model(
             logger.warning(f"Could not compute ROC-AUC (OvR): {e}")
 
     # Confusion matrix (optional, for logging/visualization)
-    if "confusion_matrix" in metrics:
+    if reporting_cfg.get("include_confusion_matrix", True):
         cm = confusion_matrix(y_true, y_pred, labels=labels)
         results["confusion_matrix"] = cm
         logger.debug(f"Confusion matrix:\n{cm}")

@@ -400,6 +400,9 @@ def compute_comprehensive_metrics(
         )
 
     config = config or {}
+    eval_cfg = config.get("evaluation", {})
+    reporting_cfg = eval_cfg.get("reporting", {})
+
     task_type = _detect_task_type(y_true)
 
     results = {
@@ -435,14 +438,14 @@ def compute_comprehensive_metrics(
         results["roc_auc"] = auc_score
 
     # Confusion matrix
-    if config.get("include_confusion_matrix", True):
+    if reporting_cfg.get("include_confusion_matrix", True):
         unique_labels = np.unique(y_true).tolist()
         results["confusion_matrix"] = confusion_matrix(
             y_true, y_pred, labels=unique_labels
         ).tolist()
 
     # Classification report (detailed per-class metrics)
-    if config.get("include_classification_report", True):
+    if reporting_cfg.get("include_classification_report", True):
         results["classification_report"] = generate_classification_report(
             y_true, y_pred, target_names=class_names, task_type=task_type
         )

@@ -31,9 +31,10 @@ def load_and_prepare_data(
         base_dir = BASE_DIR
 
     cfg = load_config(config_path)
+    data_cfg = cfg.get("data", {})
 
     # 1. Load raw dataset
-    data_path = Path(cfg["data_path"])
+    data_path = Path(data_cfg["path"])
     if not data_path.is_absolute():
         data_path = base_dir / data_path
 
@@ -49,26 +50,28 @@ def load_and_prepare_data(
 
     # 2. Select core columns
     cols_to_keep = [
-        cfg["target_column"],
-        cfg["text_column"],
-        cfg["confidence_columns"]["sentiment"],
-        cfg["confidence_columns"]["reason"]
+        data_cfg["target_column"],
+        data_cfg["text_column"],
+        data_cfg["confidence_columns"]["sentiment"],
+        data_cfg["confidence_columns"]["reason"]
     ]
     df = df[cols_to_keep].copy()
 
     # 3. Drop rows with missing text or target
-    df = df.dropna(subset=[cfg["text_column"], cfg["target_column"]])
+    df = df.dropna(subset=[data_cfg["text_column"], data_cfg["target_column"]])
     logger.info(f"Dropped missing values: {df.shape[0]} rows remaining")
 
     # Log distribution before filtering
     logger.debug(
         f"Target distribution (before filtering):\n"
-        f"{df[cfg['target_column']].value_counts(normalize=True).to_dict()}"
+        f"{df[data_cfg[
+            'target_column'
+        ]].value_counts(normalize=True).to_dict()}"
     )
 
     # 4. Filter by sentiment confidence threshold
-    conf_thresh = cfg.get("confidence_threshold", 0.7)
-    conf_col = cfg["confidence_columns"]["sentiment"]
+    conf_thresh = data_cfg.get("confidence_threshold", 0.7)
+    conf_col = data_cfg["confidence_columns"]["sentiment"]
     df_filtered = df[df[conf_col] >= conf_thresh].copy()
     logger.info(
         f"Filtered by confidence (>={conf_thresh}): "
@@ -78,18 +81,20 @@ def load_and_prepare_data(
     # Log distribution after filtering
     logger.debug(
         f"Target distribution (after filtering):\n"
-        f"{df_filtered[cfg['target_column']].value_counts(normalize=True).to_dict()}"  # noqa:E501
+        f"{df_filtered[data_cfg[
+            'target_column'
+        ]].value_counts(normalize=True).to_dict()}"
     )
 
     # 5. Rename confidence columns for consistency
     df_filtered = df_filtered.rename(columns={
-        cfg["confidence_columns"]["sentiment"]: "sentiment_confidence",
-        cfg["confidence_columns"]["reason"]: "reason_confidence"
+        data_cfg["confidence_columns"]["sentiment"]: "sentiment_confidence",
+        data_cfg["confidence_columns"]["reason"]: "reason_confidence"
     })
 
     # 6. Encode target variable
     df_filtered["target"] = (
-        df_filtered[cfg["target_column"]]
+        df_filtered[data_cfg["target_column"]]
         .map(TARGET_MAPPING)
         .astype("Int64")  # Nullable integer
     )
@@ -99,7 +104,9 @@ def load_and_prepare_data(
     if invalid_mask.any():
         logger.warning(
             f"Dropped {invalid_mask.sum()} rows with unknown target values: "
-            f"{df_filtered.loc[invalid_mask, cfg['target_column']].unique()}"
+            f"{df_filtered.loc[
+                invalid_mask, data_cfg['target_column']
+            ].unique()}"
         )
         df_filtered = df_filtered.dropna(subset=["target"])
 
