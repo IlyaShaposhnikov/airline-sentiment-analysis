@@ -57,6 +57,10 @@ def _compute_auc(
     Returns:
         ROC-AUC score or None if computation fails
     """
+    if y_proba.size == 0 or y_proba.shape[1] == 0:
+        logger.warning("Skipping AUC: empty or invalid probability array")
+        return None
+
     if task_type is None:
         task_type = _detect_task_type(y_true)
 
@@ -334,7 +338,7 @@ def export_metrics(
         }
 
         if flat_metrics:
-            csv_path = output_dir / f"{filename}.csv"
+            csv_path = output_dir / f"{filename}_flat.csv"
             pd.DataFrame([flat_metrics]).T.to_csv(csv_path, header=["value"])
             saved_paths.append(csv_path)
             logger.info(f"Flat metrics exported to {csv_path}")
@@ -358,6 +362,7 @@ def export_metrics(
                     f"Could not export classification report to CSV: {e}"
                 )
 
+    logger.debug(f"Exported metrics in formats: {formats} → {saved_paths}")
     return saved_paths
 
 
@@ -367,6 +372,9 @@ def compute_comprehensive_metrics(
     y_proba: np.ndarray,
     config: Optional[Dict] = None,
     class_names: Optional[List[str]] = None,
+    auto_export: bool = False,
+    output_dir: Optional[Union[str, Path]] = None,
+    export_filename: str = "metrics_report",
 ) -> Dict:
     """
     Compute a comprehensive set of metrics
@@ -378,6 +386,9 @@ def compute_comprehensive_metrics(
         y_proba: Predicted probabilities
         config: Optional config dict with metric preferences
         class_names: Optional list of class names for reports
+        auto_export: If True, automatically export metrics using config
+        output_dir: Directory for exported files (required if auto_export=True)
+        export_filename: Base filename for exported metrics
 
     Returns:
         Dictionary with all computed metrics
@@ -454,5 +465,20 @@ def compute_comprehensive_metrics(
         f"Computed metrics: accuracy={results['accuracy']:.4f}, "
         f"f1={results['f1_macro']:.4f}, auc={results.get('roc_auc', 'N/A')}"
     )
+
+    if auto_export and output_dir:
+        formats = reporting_cfg.get("export_formats", ["json", "csv"])
+        logger.info(
+            f"Auto-exporting metrics to {output_dir} in formats: {formats}"
+        )
+        try:
+            export_metrics(
+                results,
+                output_dir=output_dir,
+                filename=export_filename,
+                formats=formats,
+            )
+        except Exception as e:
+            logger.error(f"Failed to auto-export metrics: {e}")
 
     return results

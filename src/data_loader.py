@@ -33,6 +33,33 @@ def load_and_prepare_data(
     cfg = load_config(config_path)
     data_cfg = cfg.get("data", {})
 
+    required_data_keys = [
+        "path", "target_column", "text_column", "confidence_columns"
+    ]
+    missing_keys = [k for k in required_data_keys if k not in data_cfg]
+    if missing_keys:
+        raise ValueError(
+            "Missing required keys in [data] section "
+            f"of config: {missing_keys}. "
+            f"Expected: {required_data_keys}"
+        )
+
+    conf_cols = data_cfg["confidence_columns"]
+    if not isinstance(conf_cols, dict):
+        raise TypeError(
+            "data.confidence_columns must be a dict, "
+            f"got {type(conf_cols).__name__}"
+        )
+
+    required_conf_keys = ["sentiment", "reason"]
+    missing_conf = [k for k in required_conf_keys if k not in conf_cols]
+    if missing_conf:
+        raise ValueError(
+            "Missing required keys in "
+            f"data.confidence_columns: {missing_conf}. "
+            f"Expected: {required_conf_keys}"
+        )
+
     # 1. Load raw dataset
     data_path = Path(data_cfg["path"])
     if not data_path.is_absolute():

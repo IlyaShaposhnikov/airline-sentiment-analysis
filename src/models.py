@@ -110,6 +110,11 @@ def create_model(config: dict) -> LogisticRegression:
         l1_ratio = 0.0
         C_val = reg_cfg.get("C", 1.0)
 
+    logger.debug(
+        f"Regularization config: solver={solver}, penalty={penalty}, "
+        f"C={C_val}, l1_ratio={l1_ratio}"
+    )
+
     model_kwargs = {
         "max_iter": training_cfg["max_iter"],
         "class_weight": class_weight,
@@ -120,6 +125,17 @@ def create_model(config: dict) -> LogisticRegression:
 
     if l1_ratio is not None:
         model_kwargs["l1_ratio"] = l1_ratio
+
+    logger.debug(
+        f"Model kwargs: {model_kwargs}",
+        extra={"model_init_params": model_kwargs}
+    )
+
+    logger.info(
+        f"LogisticRegression initialized: solver={solver}, "
+        f"penalty={penalty}, C={C_val}, l1_ratio={l1_ratio}, "
+        f"max_iter={training_cfg['max_iter']}"
+    )
 
     return LogisticRegression(**model_kwargs)
 
@@ -192,6 +208,7 @@ def evaluate_model(
     eval_cfg = config.get("evaluation", {})
     metrics_cfg = eval_cfg.get("metrics", {})
     reporting_cfg = eval_cfg.get("reporting", {})
+
     # Input validation
     if X is None or y_true is None:
         raise ValueError("X and y_true cannot be None")
@@ -235,23 +252,26 @@ def evaluate_model(
 
     # ROC-AUC: multiclass via 'ovo' (one-vs-one) or 'ovr' (one-vs-rest)
     # Note: roc_auc_score handles binary classification automatically
-    if "roc_auc_ovo" in metrics:
-        try:
-            results["roc_auc_ovo"] = roc_auc_score(
-                y_true, y_proba, multi_class="ovo", average="macro"
-            )
-            logger.info(f"ROC-AUC (OvO): {results['roc_auc_ovo']:.4f}")
-        except Exception as e:
-            logger.warning(f"Could not compute ROC-AUC (OvO): {e}")
+    if y_proba.size == 0:
+        logger.warning("Skipping ROC-AUC: empty probability array")
+    else:
+        if "roc_auc_ovo" in metrics:
+            try:
+                results["roc_auc_ovo"] = roc_auc_score(
+                    y_true, y_proba, multi_class="ovo", average="macro"
+                )
+                logger.info(f"ROC-AUC (OvO): {results['roc_auc_ovo']:.4f}")
+            except Exception as e:
+                logger.warning(f"Could not compute ROC-AUC (OvO): {e}")
 
-    if "roc_auc_ovr" in metrics:
-        try:
-            results["roc_auc_ovr"] = roc_auc_score(
-                y_true, y_proba, multi_class="ovr", average="macro"
-            )
-            logger.info(f"ROC-AUC (OvR): {results['roc_auc_ovr']:.4f}")
-        except Exception as e:
-            logger.warning(f"Could not compute ROC-AUC (OvR): {e}")
+        if "roc_auc_ovr" in metrics:
+            try:
+                results["roc_auc_ovr"] = roc_auc_score(
+                    y_true, y_proba, multi_class="ovr", average="macro"
+                )
+                logger.info(f"ROC-AUC (OvR): {results['roc_auc_ovr']:.4f}")
+            except Exception as e:
+                logger.warning(f"Could not compute ROC-AUC (OvR): {e}")
 
     # Confusion matrix (optional, for logging/visualization)
     if reporting_cfg.get("include_confusion_matrix", True):

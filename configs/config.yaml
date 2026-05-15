@@ -20,7 +20,7 @@ preprocessing:
   cleaning:
     lowercase: true
     remove_urls: true
-    remove_mentions: false  # Keep @airline mentions
+    remove_mentions: true
     remove_special_chars: true  # Except !?. (handled in code)
     remove_extra_whitespace: true
   

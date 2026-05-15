@@ -74,6 +74,10 @@ def get_top_features_by_weight(
             # Binary: single row represents decision boundary
             # Positive class (idx=1) = +coef[0]
             # Negative class (idx=0) = -coef[0]
+            logger.debug(
+                f"Binary classification detected: inverting weights for "
+                f"negative class (idx={idx})"
+            )
             weights = coef[0] if idx == 1 else -coef[0]
         else:
             # Multiclass: normal access
@@ -297,6 +301,16 @@ def explain_prediction(
     Returns:
         Dict with prediction, probabilities, and top contributing features.
     """
+    if not text or not text.strip():
+        logger.warning("explain_prediction called with empty text")
+        return {
+            "error": "Empty input text",
+            "method": "none",
+            "predicted_class": None,
+            "probabilities": {},
+            "top_contributors": [],
+        }
+
     # Preprocess and vectorize input
     X_input = vectorizer.transform([text])
 

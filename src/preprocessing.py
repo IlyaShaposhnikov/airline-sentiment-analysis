@@ -16,7 +16,7 @@ def clean_text(
     text: str,
     lowercase: bool = True,
     remove_urls: bool = True,
-    remove_mentions: bool = False,  # Keep @airline mentions
+    remove_mentions: bool = False,
     remove_special_chars: bool = True,
     remove_extra_whitespace: bool = True,
 ) -> str:
@@ -141,6 +141,13 @@ def create_vectorizer(config: dict) -> Union[TfidfVectorizer, CountVectorizer]:
     """Initialize and return a vectorizer based on configuration."""
     vectorizer_cfg = config.get("preprocessing", {}).get("vectorizer", {})
     nlp_cfg = config.get("preprocessing", {}).get("nlp", {})
+
+    logger.debug(
+        f"Vectorizer config: type={vectorizer_cfg.get('type')}, "
+        f"max_features={vectorizer_cfg.get('max_features')}, "
+        f"ngram_range={vectorizer_cfg.get('ngram_range')}"
+    )
+
     required_keys = ["type", "max_features", "ngram_range"]
     missing = [k for k in required_keys if k not in vectorizer_cfg]
     if missing:
