@@ -9,6 +9,9 @@ pyyaml>=6.0.1
 # TEXT PREPROCESSING (optional, for lemmatization)
 nltk>=3.8.1  # Required if lemmatize=true in config
 
+# INTERPRETABILITY (optional: SHAP)
+# shap>=0.44.0
+
 # API SUPPORT (optional: FastAPI + Uvicorn)
 # fastapi>=0.104.0
 # uvicorn[standard]>=0.24.0
@@ -16,6 +19,3 @@ nltk>=3.8.1  # Required if lemmatize=true in config
 
 # DASHBOARD (optional: Streamlit)
 # streamlit>=1.28.0
-
-# INTERPRETABILITY (optional: SHAP)
-# shap>=0.44.0

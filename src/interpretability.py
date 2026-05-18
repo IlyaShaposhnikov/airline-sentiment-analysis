@@ -405,7 +405,14 @@ def explain_prediction(
 
     # Fallback: use model weights (linear model interpretation)
     # Get weights for predicted class
-    weights = model.coef_[pred_idx]
+    classes = model.classes_
+    if len(classes) == 2 and model.coef_.shape[0] == 1:
+        # Binary: single row represents decision boundary
+        # Positive class (idx=1) = +coef[0], Negative class (idx=0) = -coef[0]
+        weights = model.coef_[0] if pred_idx == 1 else -model.coef_[0]
+    else:
+        # Multiclass: normal access
+        weights = model.coef_[pred_idx]
 
     try:
         feature_names = vectorizer.get_feature_names_out()
