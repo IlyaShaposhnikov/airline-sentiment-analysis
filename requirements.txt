@@ -7,7 +7,7 @@ seaborn>=0.13.0
 pyyaml>=6.0.1
 
 # TEXT PREPROCESSING (optional, for lemmatization)
-nltk>=3.8.1  # Required if lemmatize=true in config
+# nltk>=3.8.1  # Required if lemmatize=true in config
 
 # INTERPRETABILITY (optional: SHAP)
 # shap>=0.44.0

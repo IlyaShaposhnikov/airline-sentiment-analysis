@@ -49,6 +49,9 @@ model:
     penalty: "l2"    # Options: "l2", "l1", "elasticnet", "none"
     C: 1.0           # Inverse regularization strength
     l1_ratio: 0.5    # Only used when penalty="elasticnet", range [0.0, 1.0]
+  artifacts:
+    path: "artifacts/model_bundle.joblib"
+    auto_save: true
 
 # EVALUATION & METRICS
 evaluation:
@@ -91,9 +94,19 @@ interpretability:
 # SERVING / DASHBOARD
 serving:
   api:
-    enabled: false
+    enabled: true
+    host: "0.0.0.0"
     port: 8000
     endpoint: "/predict"
+    log_level: "INFO"
+    rate_limit_per_minute: 60
+    cors_origins: ["*"]
+    limits:
+      max_text_length: 1000
+      max_batch_size: 100
+      min_explain_count: 1
+      max_explain_count: 20
+      max_request_size_mb: 10
   
   dashboard:
     enabled: false
