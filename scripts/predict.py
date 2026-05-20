@@ -42,15 +42,15 @@ matplotlib.use("Agg")  # Non-interactive backend
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.models import (  # noqa:E402
+from src.models import (  # noqa: E402
     load_model,
     predict_sentiment
 )
-from src.interpretability import (  # noqa:E402
+from src.interpretability import (  # noqa: E402
     explain_prediction,
     SHAP_AVAILABLE
 )
-from src.utils.logging_config import setup_logger  # noqa:E402
+from src.utils.logging_config import setup_logger  # noqa: E402
 
 logger = setup_logger("predict", level="INFO")
 

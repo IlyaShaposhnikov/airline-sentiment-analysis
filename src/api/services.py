@@ -276,6 +276,29 @@ class ModelService:
                 detail="Internal prediction error",
             ) from e
 
+    def predict_single_sync(
+        self,
+        text: str,
+        explain: bool = False,
+        use_shap: bool = False,
+        n_explain: int = 5,
+    ) -> PredictionResponse:
+        """
+        Synchronous public wrapper for single prediction.
+        Designed for sync contexts like Streamlit dashboards.
+
+        Args:
+            text: Input text to classify
+            explain: Whether to generate explanation
+            use_shap: Use SHAP values if available
+            n_explain: Number of top contributors
+
+        Returns:
+            PredictionResponse with classification and optional explanation
+        """
+        self.load()
+        return self._predict_single_sync(text, explain, use_shap, n_explain)
+
     async def predict_batch(
         self,
         texts: List[str],
