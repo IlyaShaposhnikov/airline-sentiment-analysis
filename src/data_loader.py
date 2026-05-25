@@ -127,9 +127,7 @@ def load_and_prepare_data(
     if invalid_mask.any():
         logger.warning(
             f"Dropped {invalid_mask.sum()} rows with unknown target values: "
-            f"{df_filtered.loc[
-                invalid_mask, data_cfg['target_column']
-            ].unique()}"
+            f"{df_filtered.loc[invalid_mask, data_cfg['target_column']].unique()}"  # noqa: E501
         )
         df_filtered = df_filtered.dropna(subset=["target"])
 
