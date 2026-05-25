@@ -114,7 +114,11 @@ class ModelService:
 
         return PredictionResponse(
             text=text,
-            predicted_class=class_names[pred_idx],
+            predicted_class=(
+                class_names[pred_idx]
+                if pred_idx < len(class_names)
+                else str(pred_idx)
+            ),
             predicted_class_idx=pred_idx,
             probabilities=probabilities,
             confidence=confidence,
@@ -317,6 +321,9 @@ class ModelService:
         than the input. For strict all-or-nothing behavior, wrap calls in
         transactional logic at the API layer.
         """
+        if not texts:
+            return []
+
         self.load()
 
         start_time = datetime.now(timezone.utc)

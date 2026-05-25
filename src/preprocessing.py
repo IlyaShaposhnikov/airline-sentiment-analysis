@@ -30,7 +30,7 @@ def clean_text(
 
     # Remove URLs (http/https)
     if remove_urls:
-        text = re.sub(r"https?://\S+|www\.\S+", "", text)
+        text = re.sub(r"https?://[^\s!]+|www\.[^\s!]+", "", text)
 
     # Remove mentions (@username)
     if remove_mentions:
@@ -39,7 +39,12 @@ def clean_text(
     # Remove special characters and punctuation
     if remove_special_chars:
         # Keep letters, digits, spaces, !, ?, . for sentiment context
-        text = re.sub(r"[^a-z0-9\s!?.]", "", text)
+        if lowercase:
+            # Text already lowercased, regex can use a-z only
+            text = re.sub(r"[^a-z0-9\s!?.]", "", text)
+        else:
+            # Text may have uppercase, allow A-Z too
+            text = re.sub(r"[^a-zA-Z0-9\s!?.]", "", text)
 
     # Remove extra whitespace
     if remove_extra_whitespace:

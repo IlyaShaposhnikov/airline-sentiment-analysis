@@ -6,8 +6,8 @@ matplotlib>=3.8.0
 seaborn>=0.13.0
 pyyaml>=6.0.1
 
-# TEXT PREPROCESSING (optional, for lemmatization)
-# nltk>=3.8.1  # Required if lemmatize=true in config
+# TEXT PREPROCESSING (for lemmatization)
+nltk>=3.8.1  # Required if lemmatize=true in config
 
 # INTERPRETABILITY (optional: SHAP)
 # shap>=0.44.0
@@ -19,3 +19,9 @@ pyyaml>=6.0.1
 
 # DASHBOARD (optional: Streamlit)
 # streamlit>=1.28.0
+
+# TESTING
+# pytest>=7.4.0
+# pytest-cov>=4.1.0
+# pytest-asyncio>=0.21.0
+# responses>=0.24.0
