@@ -1,0 +1,112 @@
+name: CI - Tests & Coverage
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    env:
+      PYTEST_ADDOPTS: "-v --tb=short"
+      NLTK_DATA: /home/runner/nltk_data
+      PYTHONUNBUFFERED: "1"
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      - name: Cache NLTK data and pytest cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/nltk_data
+            .pytest_cache
+            __pycache__
+          key: ${{ runner.os }}-nltk-pytest-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-nltk-pytest-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Check for security vulnerabilities
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt || echo "::warning::Security vulnerabilities found"
+        continue-on-error: true
+
+      - name: Download NLTK resources
+        run: |
+          python -c "
+          import nltk, os
+          nltk.data.path.append(os.path.expanduser('~/nltk_data'))
+          for resource in ['punkt', 'wordnet', 'omw-1.4']:
+              nltk.download(resource, download_dir=os.path.expanduser('~/nltk_data'), quiet=True)
+          "
+        continue-on-error: true
+
+      - name: Run tests with coverage
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            # Fast mode for PRs: skip integration tests
+            pytest tests/ -v -m "not integration" \
+              --cov=src \
+              --cov-report=xml \
+              --cov-report=term-missing \
+              --junitxml=test-results.xml \
+              --timeout=300
+          else
+            # Full mode for main/develop
+            pytest tests/ -v \
+              --cov=src \
+              --cov-report=xml \
+              --cov-report=term-missing \
+              --junitxml=test-results.xml \
+              --timeout=600
+          fi
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: python-${{ matrix.python-version }}
+          fail_ci_if_error: false
+
+      - name: Upload coverage report (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: coverage.xml
+          retention-days: 7
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results-${{ matrix.python-version }}
+          path: test-results.xml
+          retention-days: 7
+        if: always()
