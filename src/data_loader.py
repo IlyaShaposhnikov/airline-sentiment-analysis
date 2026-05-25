@@ -91,9 +91,7 @@ def load_and_prepare_data(
     # Log distribution before filtering
     logger.debug(
         f"Target distribution (before filtering):\n"
-        f"{df[data_cfg[
-            'target_column'
-        ]].value_counts(normalize=True).to_dict()}"
+        f"{df[data_cfg['target_column']].value_counts(normalize=True).to_dict()}"  # noqa: E501
     )
 
     # 4. Filter by sentiment confidence threshold
