@@ -106,9 +106,7 @@ def load_and_prepare_data(
     # Log distribution after filtering
     logger.debug(
         f"Target distribution (after filtering):\n"
-        f"{df_filtered[data_cfg[
-            'target_column'
-        ]].value_counts(normalize=True).to_dict()}"
+        f"{df_filtered[data_cfg['target_column']].value_counts(normalize=True).to_dict()}"  # noqa: E501
     )
 
     # 5. Rename confidence columns for consistency
