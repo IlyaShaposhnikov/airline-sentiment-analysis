@@ -62,8 +62,20 @@ jobs:
         run: |
           python -c "
           import nltk, os
+          # Добавляем путь к данным, чтобы nltk искал там
           nltk.data.path.append(os.path.expanduser('~/nltk_data'))
-          for resource in ['punkt', 'punkt_tab', 'wordnet', 'omw-1.4', 'averaged_perceptron_tagger']:
+          
+          # Список всех необходимых ресурсов для тестов
+          resources = [
+              'punkt',
+              'punkt_tab',
+              'wordnet',
+              'omw-1.4',
+              'averaged_perceptron_tagger',
+              'averaged_perceptron_tagger_eng',
+              'stopwords'
+          ]
+          for resource in resources:
               nltk.download(resource, download_dir=os.path.expanduser('~/nltk_data'), quiet=True)
           "
         continue-on-error: true
