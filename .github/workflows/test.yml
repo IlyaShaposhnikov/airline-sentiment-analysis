@@ -63,7 +63,7 @@ jobs:
           python -c "
           import nltk, os
           nltk.data.path.append(os.path.expanduser('~/nltk_data'))
-          for resource in ['punkt', 'wordnet', 'omw-1.4']:
+          for resource in ['punkt', 'punkt_tab', 'wordnet', 'omw-1.4', 'averaged_perceptron_tagger']:
               nltk.download(resource, download_dir=os.path.expanduser('~/nltk_data'), quiet=True)
           "
         continue-on-error: true

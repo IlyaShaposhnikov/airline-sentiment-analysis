@@ -247,7 +247,8 @@ class TestFullPipelineIntegration:
         # 8. API Service Integration (with minimal mocks)
         # =========================================================================
         with patch("src.api.services.load_model") as mock_load, \
-             patch("src.api.services.explain_prediction") as mock_exp:
+             patch("src.api.services.explain_prediction") as mock_exp, \
+             patch("src.api.services.is_model_available") as mock_avail:
 
             # Mock returns the ACTUAL trained model from this test
             mock_load.return_value = (
@@ -257,6 +258,7 @@ class TestFullPipelineIntegration:
                 "method": "weights",
                 "top_contributors": [("great", 1.2), ("excellent", 0.9)]
             }
+            mock_avail.return_value = True
 
             service = ModelService(model_path=str(model_path))
             service.load()  # Uses mock
