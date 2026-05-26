@@ -130,8 +130,7 @@ Predict sentiment for a single text input.
 **Errors**:
 | Status | Cause | Example Response |
 |--------|-------|------------------|
-| `400` | Request validation failed (Pydantic) | `{"error": "validation_error", "detail": "Request validation failed"}` |
-| `422` | Schema mismatch (FastAPI) | Standard FastAPI validation error with field details |
+| `422` | Schema validation failed (Pydantic) | `{"error": "validation_error", "detail": "Request validation failed"}` |
 | `500` | Internal prediction error | `{"error": "internal_error", "detail": "Prediction failed: RuntimeError"}` |
 | `504` | Prediction timeout (>30s) | `{"error": "timeout", "detail": "Prediction timed out after 30s"}` |
 
@@ -198,12 +197,12 @@ Predict sentiment for multiple texts in a single request.
 ```
 
 > **Partial Success**: If individual items fail during processing, they are logged and skipped. The `count` field reflects the number of **successful** predictions returned.
+> **Timeout**: Batch requests have a scalable timeout: `30 seconds × number of texts`. For 10 texts, the total timeout is ~5 minutes.
 
 **Errors**:
 | Status | Cause | Example Response |
 |--------|-------|------------------|
-| `400` | Request validation failed | `{"error": "validation_error", "detail": "Text at index 2 cannot be empty"}` |
-| `422` | Schema mismatch | Standard FastAPI validation error |
+| `422` | Schema validation failed (Pydantic) | `{"error": "validation_error", "detail": "Request validation failed"}` |
 | `500` | Internal batch error | `{"error": "internal_error", "detail": "Batch prediction failed"}` |
 | `504` | Batch timeout (>30s × N texts) | `{"error": "timeout", "detail": "Batch prediction timed out"}` |
 
@@ -353,3 +352,6 @@ A: Explanations use raw logistic regression coefficients. If `method: "shap"`, S
 
 **Q: Why does a batch return fewer results than requested?**  
 A: Some items may have failed during processing (e.g., empty text after cleaning). Errors are logged, and successful predictions are returned. Check server logs for details.
+
+**Q: How do I change the API log level?**  
+A: Set `serving.api.log_level: "WARNING"` in `config.yaml`, or override via environment variable: `API_LOG_LEVEL=ERROR`. Available levels: `DEBUG`, `INFO`, `WARNING`, `ERROR`.

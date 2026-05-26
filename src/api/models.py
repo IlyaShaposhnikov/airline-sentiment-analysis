@@ -204,7 +204,6 @@ class PredictionResponse(BaseAPIModel):
                     "negative": 0.02, "positive": 0.96, "neutral": 0.02
                 },
                 "confidence": 0.96,
-                "timestamp": "2026-05-18T10:00:00.123456",
                 "explanation": {
                     "method": "weights",
                     "top_contributors": [["great", 1.85], ["flight", 0.45]]
@@ -298,7 +297,6 @@ class HealthResponse(BaseAPIModel):
             "examples": [{
                 "status": "healthy",
                 "service": "airline-sentiment-api",
-                "timestamp": "2026-05-18T10:00:00.123456",
                 "model_loaded": True,
                 "shap_available": False
             }]
@@ -335,7 +333,6 @@ class ErrorResponse(BaseAPIModel):
                     "Model bundle not found at "
                     "artifacts/model_bundle.joblib"
                 ),
-                "timestamp": "2026-05-18T10:00:00.123456"
             }]
         }
     )

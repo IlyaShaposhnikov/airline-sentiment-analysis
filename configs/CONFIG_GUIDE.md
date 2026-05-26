@@ -29,7 +29,7 @@ preprocessing:
   cleaning:
     lowercase: true                        # Mirrors vectorizer.lowercase for flexibility
     remove_urls: true                      # Strip http/https/www links
-    remove_mentions: false                 # Strip @username (false = keep @airline)
+    remove_mentions: true                  # Strip @username (true = remove @airline and @user mentions)
     remove_special_chars: true             # Strip everything except [a-z0-9\s!?.]
     remove_extra_whitespace: true          # Collapse multiple spaces/tabs/newlines
   
@@ -215,8 +215,10 @@ evaluation:
 
 ## FAQ
 
-**Q: Why is `remove_mentions: false` by default?**  
-A: Airline mentions (e.g., `@VirginAmerica`) often carry semantic weight for sentiment. Remove them only if analyzing general sentiment rather than brand-specific feedback.
+**Q: Why is `remove_mentions: true` by default?**  
+A: Removing mentions (e.g., `@VirginAmerica`) helps reduce noise and prevents the model from overfitting to specific airline names rather than learning sentiment-bearing words. 
+
+> **Tip**: If you need to analyze brand-specific feedback or entity-level sentiment, set `remove_mentions: false` in your config to preserve these tokens.
 
 **Q: When should I use `elasticnet`?**  
 A: When you want to combine L1 (feature selection) and L2 (weight stability) regularization. Requires `solver: saga` and tuning `l1_ratio`.

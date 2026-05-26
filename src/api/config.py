@@ -87,7 +87,11 @@ MODEL_PATH = _get_config_value(
 API_HOST = _get_config_value("serving", "api", "host", default="0.0.0.0")
 API_PORT = _get_config_value("serving", "api", "port", default=8000)
 API_ENABLED = _get_config_value("serving", "api", "enabled", default=True)
-CORS_ALLOWED_ORIGINS: list[str] = ["*"]
+CORS_ALLOWED_ORIGINS = _get_config_value(
+    "serving", "api", "cors_origins",
+    default=["*"],
+    env_var="CORS_ORIGINS"
+)
 
 # ============================================================================
 # API metadata
