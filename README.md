@@ -35,10 +35,12 @@ This project demonstrates a complete machine learning lifecycle: from raw data i
 
 ```
 airline-sentiment-analysis/
-├── configs/config.yaml          # Centralized configuration (nested, validated)
+├── configs/config.yaml
+│   ├── config.yaml              # Centralized configuration (nested, validated)
+│   └── CONFIG_GUIDE.md          # Detailed reference for config parameters, validation rules, and env overrides
 ├── data/
 │   ├── Tweets.csv               # Raw dataset (downloaded by user)
-│   └── README.md                # Dataset documentation
+│   └── DATA_GUIDE.md            # Dataset documentation
 ├── src/
 │   ├── constants.py             # Project-wide constants: target mappings, paths, default values
 │   ├── data_loader.py           # Data ingestion & confidence filtering
@@ -50,7 +52,8 @@ airline-sentiment-analysis/
 │   │   ├── config.py            # API settings & env overrides
 │   │   ├── models.py            # Pydantic request/response schemas
 │   │   ├── services.py          # Thread-safe ModelService
-│   │   └── main.py              # FastAPI entry point & routes
+│   │   ├── main.py              # FastAPI entry point & routes
+│   │   └── API_REFERENCE.md     # Technical reference for REST endpoints, Pydantic schemas, and error handling
 │   ├── utils/logging_config.py  # Centralized logging setup: formatters, handlers, log levels
 │   └── dashboard.py             # Streamlit web UI
 ├── scripts/
