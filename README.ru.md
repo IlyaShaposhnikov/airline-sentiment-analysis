@@ -8,7 +8,7 @@
 [![CI Status](https://github.com/IlyaShaposhnikov/airline-sentiment-analysis/actions/workflows/test.yml/badge.svg)](https://github.com/IlyaShaposhnikov/airline-sentiment-analysis/actions)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Сквозной ML/NLP-пайплайн для предсказания тональности твитов об авиакомпаниях. Включает обучение с учетом уверенности аннотаций, объяснимый ИИ, готовый к использованию в рабочей среде REST API, интерактивную панель управления и CI с комплексным тестированием.
+Сквозной ML/NLP-пайплайн для предсказания тональности твитов об авиакомпаниях. Включает обучение с учетом уверенности разметчиков (confidence-aware), объяснимый ИИ, готовый к использованию в рабочей среде REST API, интерактивную панель управления и CI с комплексным тестированием.
 
 ## Обзор
 
@@ -18,7 +18,7 @@
 - **Модель**: Логистическая регрессия с TF-IDF векторизацией и взвешиванием по уверенности аннотаций
 - **Интерпретируемость**: Веса модели + объяснения через SHAP (SHapley Additive exPlanations) — метод, который показывает вклад каждого слова в предсказание тональности на основе значений Шепли (опционально)
 - **Развертывание**: FastAPI REST API + интерактивная панель на Streamlit
-- **Качество**: Покрытие ключевых модулей тестами > 90%, CI через GitHub Actions, аудит безопасности
+- **Качество**: Покрытие тестами >90% для основного ML-кода и сервисной логики, CI через GitHub Actions, аудит безопасности
 
 ## Возможности
 
@@ -177,8 +177,8 @@ curl -X POST http://localhost:8000/predict/batch \
 | Основные | `numpy`, `pandas`, `scikit-learn`, `scipy` |
 | NLP | `nltk`, `shap` (опционально) |
 | API | `fastapi`, `uvicorn`, `pydantic>=2` |
-| Интерфейс  | `streamlit`, `matplotlib`, `seaborn` |
-| Тестирование  | `pytest`, `pytest-cov`, `pytest-asyncio`, `pytest-timeout`, `pip-audit` |
+| Интерфейс | `streamlit`, `matplotlib`, `seaborn` |
+| Тестирование | `pytest`, `pytest-cov`, `pytest-asyncio`, `pytest-timeout`, `pip-audit` |
 
 ## Автор
 
