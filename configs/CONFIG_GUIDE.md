@@ -117,65 +117,6 @@ serving:
     framework: "streamlit"                 # "streamlit" or "gradio"
 ```
 
-<details>
-<summary>Click to open the interactive scheme</summary>
-
-```mermaid
-flowchart TD
-    subgraph Config["config.yaml"]
-        direction TB
-        
-        Data["data"]
-        Preproc["preprocessing"]
-        Model["model"]
-        Eval["evaluation"]
-        Interpret["interpretability"]
-        Serving["serving"]
-    end
-    
-    subgraph DataSection["Data Loading"]
-        Data --> DataPath["path: data/Tweets.csv"]
-        Data --> DataTarget["target_column: airline_sentiment"]
-        Data --> DataConf["confidence_threshold: 0.7"]
-    end
-    
-    subgraph PreprocSection["Text Preprocessing"]
-        Preproc --> Vec["vectorizer: tfidf/count"]
-        Preproc --> Clean["cleaning: URLs, mentions, special chars"]
-        Preproc --> NLP["nlp: lemmatize, stopwords"]
-    end
-    
-    subgraph ModelSection["Model Configuration"]
-        Model --> Train["training: max_iter, class_weight"]
-        Model --> Reg["regularization: solver, penalty, C"]
-        Model --> Artifacts["artifacts: path, auto_save"]
-    end
-    
-    subgraph EvalSection["Evaluation & Metrics"]
-        Eval --> Split["split: test_size, stratify"]
-        Eval --> Metrics["metrics: accuracy, f1, roc_auc"]
-        Eval --> Report["reporting: plots, export formats"]
-    end
-    
-    subgraph InterpretSection["Interpretability"]
-        Interpret --> Weights["weight_based: top words"]
-        Interpret --> SHAP["shap: enabled, background_samples"]
-    end
-    
-    subgraph ServingSection["Serving / Dashboard"]
-        Serving --> API["api: host, port, limits"]
-        Serving --> Dashboard["dashboard: enabled, title"]
-    end
-    
-    %% Styling
-    classDef section fill:#e3f2fd,stroke:#1976d2,stroke-width:2px
-    class Data,Preproc,Model,Eval,Interpret,Serving section
-    
-    classDef item fill:#fff9c4,stroke:#fbc02d
-    class DataPath,DataTarget,DataConf,Vec,Clean,NLP,Train,Reg,Artifacts,Split,Metrics,Report,Weights,SHAP,API,Dashboard item
-```
-</details>
-
 ## Validation & Constraints
 
 ### Solver/Penalty Compatibility (scikit-learn)
