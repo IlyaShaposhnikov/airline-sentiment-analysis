@@ -1,10 +1,17 @@
+"""
+Metrics computation, visualization, and export module.
+
+Provides comprehensive evaluation metrics (accuracy, F1, ROC-AUC),
+confusion matrix plotting, misclassified example extraction,
+and flexible export to JSON/CSV. All functions auto-detect
+binary vs multiclass tasks and handle edge cases gracefully.
+"""
 import json
 from pathlib import Path
-from typing import Optional, Union, List, Dict
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.metrics import (
     classification_report,
@@ -24,6 +31,9 @@ def _detect_task_type(y_true: np.ndarray) -> str:
     """
     Automatically detect classification task type based on unique labels.
 
+    Args:
+        y_true: Ground truth labels (1D array)
+
     Returns:
         'binary' if exactly 2 unique labels, else 'multiclass'
     """
@@ -41,9 +51,9 @@ def _detect_task_type(y_true: np.ndarray) -> str:
 def _compute_auc(
     y_true: np.ndarray,
     y_proba: np.ndarray,
-    task_type: Optional[str] = None,
+    task_type: str | None = None,
     average: str = "macro",
-) -> Optional[float]:
+) -> float | None:
     """
     Compute ROC-AUC score with automatic binary/multiclass handling.
 
@@ -51,11 +61,15 @@ def _compute_auc(
         y_true: True labels
         y_proba: Predicted probabilities (shape: [n_samples, n_classes])
         task_type: Optional override ('binary' or 'multiclass')
-        average: Averaging strategy for multiclass ('macro', 'weighted').
-                 Ignored for binary tasks.
+        average: Averaging strategy for multiclass ('macro', 'weighted')
 
     Returns:
         ROC-AUC score or None if computation fails
+
+    Note:
+        - Binary: uses y_proba[:, 1] (positive class probability)
+        - Multiclass: uses one-vs-one (ovo) strategy with macro averaging
+        - Graceful degradation: returns None + warning on errors
     """
     if y_proba.size == 0 or y_proba.shape[1] == 0:
         logger.warning("Skipping AUC: empty or invalid probability array")
@@ -66,6 +80,7 @@ def _compute_auc(
 
     try:
         if task_type == "binary":
+            # Binary AUC requires exactly 2 columns
             if y_proba.ndim != 2 or y_proba.shape[1] < 2:
                 logger.warning(
                     "Binary AUC requires y_proba "
@@ -74,7 +89,7 @@ def _compute_auc(
                 return None
             return roc_auc_score(y_true, y_proba[:, 1])
         else:
-            # Multiclass: use one-vs-one or one-vs-rest strategy
+            # Multiclass uses ovo strategy
             return roc_auc_score(
                 y_true, y_proba, multi_class="ovo", average=average
             )
@@ -86,32 +101,33 @@ def _compute_auc(
 def plot_confusion_matrix(
     y_true: np.ndarray,
     y_pred: np.ndarray,
-    labels: Optional[List] = None,
-    tick_labels: Optional[List[str]] = None,
+    labels: list | None = None,
+    tick_labels: list[str] | None = None,
     normalize: bool = True,
     cmap: str = "Blues",
-    figsize: tuple = (8, 6),
-    save_path: Optional[Union[str, Path]] = None,
+    figsize: tuple[int, int] = (8, 6),
+    save_path: str | Path | None = None,
     title: str = "Confusion Matrix",
 ) -> plt.Figure:
     """
-    Plot confusion matrix with optional normalization and labels.
+    Plot confusion matrix with optional normalization and custom labels.
 
     Args:
         y_true: True labels
         y_pred: Predicted labels
-        labels: Values to include in confusion matrix (must exist in y_true).
-                If None, uses np.unique(y_true).
-        tick_labels: Optional string names for axis ticks.
-                     Must match length of labels. If None, uses labels as-is.
-        normalize: If True, display percentages instead of counts
+        labels: Values to include in matrix (default: np.unique(y_true))
+        tick_labels: String names for axis ticks (default: str(labels))
+        normalize: If True, display rates instead of counts
         cmap: Matplotlib colormap name
-        figsize: Figure size in inches
-        save_path: Optional path to save the figure
+        figsize: Figure size in inches (width, height)
+        save_path: Optional path to save figure (creates parent dirs)
         title: Plot title
 
     Returns:
         Matplotlib Figure object
+
+    Raises:
+        ValueError: If tick_labels length doesn't match labels
     """
     if labels is None:
         labels = np.unique(y_true).tolist()
@@ -126,10 +142,10 @@ def plot_confusion_matrix(
 
     cm = confusion_matrix(y_true, y_pred, labels=labels)
 
-    # Normalize if requested
+    # Safe normalization avoids division by zero
     if normalize:
         row_sums = cm.sum(axis=1, keepdims=True)
-        # Safe division: 0/0 → 0, not NaN
+        # 0/0 → 0 (not NaN) for empty rows
         cm = np.divide(
             cm, row_sums,
             out=np.zeros_like(cm, dtype=float),
@@ -141,10 +157,9 @@ def plot_confusion_matrix(
         fmt = "d"
         annot_label = "count"
 
-    # Create DataFrame for seaborn
+    # Create DataFrame for seaborn heatmap
     df_cm = pd.DataFrame(cm, index=tick_labels, columns=tick_labels)
 
-    # Plot
     fig, ax = plt.subplots(figsize=figsize)
     sns.heatmap(
         df_cm,
@@ -161,7 +176,6 @@ def plot_confusion_matrix(
     ax.set_title(title)
     plt.tight_layout()
 
-    # Save if path provided
     if save_path:
         save_path = Path(save_path)
         save_path.parent.mkdir(parents=True, exist_ok=True)
@@ -174,27 +188,30 @@ def plot_confusion_matrix(
 def generate_classification_report(
     y_true: np.ndarray,
     y_pred: np.ndarray,
-    target_names: Optional[List[str]] = None,
-    task_type: Optional[str] = None,
+    target_names: list[str] | None = None,
+    task_type: str | None = None,
     output_dict: bool = True,
-) -> Union[Dict, pd.DataFrame]:
+) -> dict | pd.DataFrame:
     """
     Generate classification report with automatic binary/multiclass handling.
 
     Args:
         y_true: True labels
         y_pred: Predicted labels
-        target_names: Optional list of class names
+        target_names: Optional list of class names for readable output
         task_type: Optional override ('binary' or 'multiclass')
         output_dict: If True, return dict; else return pandas DataFrame
 
     Returns:
         Classification report as dict or DataFrame
+
+    Note:
+        Uses sklearn's classification_report with zero_division=0
+        to avoid warnings on empty class slices.
     """
     if task_type is None:
         task_type = _detect_task_type(y_true)
 
-    # Generate report using sklearn
     report = classification_report(
         y_true,
         y_pred,
@@ -206,10 +223,10 @@ def generate_classification_report(
     if output_dict:
         return report
 
-    # Convert to DataFrame for easier inspection
+    # Transpose for class-as-rows orientation
     df = pd.DataFrame(report).transpose()
     if "accuracy" in df.index:
-        # Move accuracy to separate row
+        # Move accuracy to separate row for clarity
         acc_row = df.loc["accuracy"]
         df = df.drop("accuracy")
         df.loc["accuracy"] = acc_row
@@ -220,14 +237,12 @@ def get_top_misclassified(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     y_proba: np.ndarray,
-    texts: Optional[List[str]] = None,
+    texts: list[str] | None = None,
     n_top: int = 10,
-    class_names: Optional[List[str]] = None,
+    class_names: list[str] | None = None,
 ) -> pd.DataFrame:
     """
-    Extract top-N most confidently misclassified examples.
-
-    Useful for model debugging and interpretability.
+    Extract top-N most confidently misclassified examples for debugging.
 
     Args:
         y_true: True labels
@@ -239,29 +254,31 @@ def get_top_misclassified(
 
     Returns:
         DataFrame with misclassified examples sorted by prediction confidence
+
+    Note:
+        Confidence = probability assigned to the (wrong) predicted class.
+        Higher confidence = more interesting error for model analysis.
     """
-    # Find misclassified indices
     misclassified_mask = y_true != y_pred
     if not np.any(misclassified_mask):
         logger.info("No misclassified examples found")
         return pd.DataFrame()
 
-    # Get confidence for wrong predictions
+    # Extract data for misclassified samples only
     wrong_proba = y_proba[misclassified_mask]
     wrong_pred = y_pred[misclassified_mask]
     wrong_true = y_true[misclassified_mask]
 
-    # Ensure wrong_pred is int array for safe indexing
+    # Ensure integer arrays for safe indexing
     wrong_pred = np.asarray(wrong_pred, dtype=int)
     wrong_true = np.asarray(wrong_true, dtype=int)
 
-    # Confidence = probability assigned to the (wrong) predicted class
+    # Confidence = prob assigned to wrong prediction
     confidence = wrong_proba[np.arange(len(wrong_pred)), wrong_pred]
 
-    # Sort by confidence (most confident wrong predictions first)
+    # Sort by confidence descending (most confident errors first)
     top_indices = np.argsort(-confidence)[:n_top]
 
-    # Build result DataFrame
     results = []
     misclassified_indices = np.where(misclassified_mask)[0]
 
@@ -270,6 +287,7 @@ def get_top_misclassified(
             "true_label": int(wrong_true[idx]),
             "pred_label": int(wrong_pred[idx]),
             "confidence": float(confidence[idx]),
+            # error_margin = how much model preferred wrong class
             "error_margin": float(
                 confidence[idx] - wrong_proba[idx, wrong_true[idx]]
             ),
@@ -287,28 +305,32 @@ def get_top_misclassified(
 
 
 def export_metrics(
-    metrics: Dict,
-    output_dir: Union[str, Path],
+    metrics: dict,
+    output_dir: str | Path,
     filename: str = "metrics_report",
-    formats: List[str] = ["json", "csv"],
-) -> List[Path]:
+    formats: list[str] = ["json", "csv"],
+) -> list[Path]:
     """
     Export metrics dictionary to JSON and/or CSV files.
 
     Args:
         metrics: Dictionary with metric names and values
-        output_dir: Directory to save files
+        output_dir: Directory to save files (created if missing)
         filename: Base filename (without extension)
         formats: List of formats to export ('json', 'csv')
 
     Returns:
         List of paths to saved files
+
+    Note:
+        - JSON: full nested structure with numpy→Python conversion
+        - CSV: flat metrics + optional classification_report table
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     saved_paths = []
 
-    # Helper: make metrics JSON-serializable
+    # Recursive helper for numpy→JSON serialization
     def _make_serializable(obj):
         if isinstance(obj, np.ndarray):
             return obj.tolist()
@@ -320,7 +342,6 @@ def export_metrics(
             return [_make_serializable(i) for i in obj]
         return obj
 
-    # Export to JSON
     if "json" in formats:
         json_path = output_dir / f"{filename}.json"
         serializable = _make_serializable(metrics)
@@ -329,9 +350,8 @@ def export_metrics(
         saved_paths.append(json_path)
         logger.info(f"Metrics exported to {json_path}")
 
-    # Export to CSV (only for flat or classification report dicts)
     if "csv" in formats:
-        # 1. Export flat metrics (scalar values only)
+        # Export only scalar metrics to flat CSV
         flat_metrics = {
             k: v for k, v in metrics.items()
             if not isinstance(v, (dict, list, np.ndarray))
@@ -343,7 +363,7 @@ def export_metrics(
             saved_paths.append(csv_path)
             logger.info(f"Flat metrics exported to {csv_path}")
 
-        # 2. Export classification_report as separate CSV if present
+        # Export classification_report as separate table
         if "classification_report" in metrics and isinstance(
             metrics["classification_report"], dict
         ):
@@ -370,21 +390,20 @@ def compute_comprehensive_metrics(
     y_true: np.ndarray,
     y_pred: np.ndarray,
     y_proba: np.ndarray,
-    config: Optional[Dict] = None,
-    class_names: Optional[List[str]] = None,
+    config: dict | None = None,
+    class_names: list[str] | None = None,
     auto_export: bool = False,
-    output_dir: Optional[Union[str, Path]] = None,
+    output_dir: str | Path | None = None,
     export_filename: str = "metrics_report",
-) -> Dict:
+) -> dict:
     """
-    Compute a comprehensive set of metrics
-    with auto binary/multiclass detection.
+    Compute comprehensive metrics with auto binary/multiclass detection.
 
     Args:
         y_true: True labels
         y_pred: Predicted labels
-        y_proba: Predicted probabilities
-        config: Optional config dict with metric preferences
+        y_proba: Predicted probabilities [n_samples, n_classes]
+        config: Optional config dict with metric/reporting preferences
         class_names: Optional list of class names for reports
         auto_export: If True, automatically export metrics using config
         output_dir: Directory for exported files (required if auto_export=True)
@@ -392,8 +411,17 @@ def compute_comprehensive_metrics(
 
     Returns:
         Dictionary with all computed metrics
+
+    Raises:
+        ValueError: If input shapes are inconsistent
+
+    Note:
+        Always computes: accuracy, F1-macro, precision-macro, recall-macro
+        Conditionally computes:
+        ROC-AUC, confusion matrix, classification_report
+        Auto-export uses config['evaluation']['reporting']['export_formats']
     """
-    # Validate input shapes
+    # Validate input shapes early for clear errors
     if not (len(y_true) == len(y_pred) == len(y_proba)):
         raise ValueError(
             f"Input length mismatch: "
@@ -422,10 +450,10 @@ def compute_comprehensive_metrics(
         "n_classes": len(np.unique(y_true)),
     }
 
-    # Basic metrics
+    # Baseline accuracy is always included
     results["accuracy"] = np.mean(y_true == y_pred)
 
-    # F1 / Precision / Recall with appropriate averaging
+    # Use 'binary' avg for binary, 'macro' for multiclass
     average = "binary" if task_type == "binary" else "macro"
     results["f1_macro"] = f1_score(
         y_true, y_pred, average=average, zero_division=0
@@ -437,25 +465,25 @@ def compute_comprehensive_metrics(
         y_true, y_pred, average=average, zero_division=0
     )
 
-    # Weighted variants for multiclass
+    # Weighted F1 only meaningful for multiclass
     if task_type == "multiclass":
         results["f1_weighted"] = f1_score(
             y_true, y_pred, average="weighted", zero_division=0
         )
 
-    # ROC-AUC
+    # ROC-AUC with graceful fallback
     auc_score = _compute_auc(y_true, y_proba, task_type=task_type)
     if auc_score is not None:
         results["roc_auc"] = auc_score
 
-    # Confusion matrix
+    # Confusion matrix as list for JSON serialization
     if reporting_cfg.get("include_confusion_matrix", True):
         unique_labels = np.unique(y_true).tolist()
         results["confusion_matrix"] = confusion_matrix(
             y_true, y_pred, labels=unique_labels
         ).tolist()
 
-    # Classification report (detailed per-class metrics)
+    # Detailed per-class metrics
     if reporting_cfg.get("include_classification_report", True):
         results["classification_report"] = generate_classification_report(
             y_true, y_pred, target_names=class_names, task_type=task_type
@@ -466,6 +494,7 @@ def compute_comprehensive_metrics(
         f"f1={results['f1_macro']:.4f}, auc={results.get('roc_auc', 'N/A')}"
     )
 
+    # Auto-export respects config['export_formats']
     if auto_export and output_dir:
         formats = reporting_cfg.get("export_formats", ["json", "csv"])
         logger.info(
