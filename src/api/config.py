@@ -1,15 +1,17 @@
 """
-API configuration loaded from project config.yaml.
+API configuration module with YAML loading and environment variable overrides.
 
-Centralizes all configurable settings for the sentiment analysis API,
-with optional environment variable overrides for deployment flexibility.
+Centralizes all configurable settings for the sentiment analysis API.
+Supports nested key access, type casting, and graceful fallback to defaults.
+All values are loaded once at module import for performance.
 """
 
-import os
-import yaml
-from pathlib import Path
-from typing import Optional
 import json
+import os
+from pathlib import Path
+from typing import Any
+
+import yaml
 
 from src.utils.logging_config import setup_logger
 
@@ -19,7 +21,7 @@ logger = setup_logger(__name__)
 # Path resolution
 # ============================================================================
 
-# PROJECT_ROOT = /path/to/airline-sentiment-analysis (repo root)
+# Resolve project root relative to this file's location
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONFIG_PATH = PROJECT_ROOT / "configs" / "config.yaml"
 
@@ -29,7 +31,16 @@ CONFIG_PATH = PROJECT_ROOT / "configs" / "config.yaml"
 
 
 def _load_base_config() -> dict:
-    """Load the main config.yaml with error handling."""
+    """
+    Load and parse the main config.yaml file.
+
+    Returns:
+        Parsed configuration dictionary
+
+    Raises:
+        FileNotFoundError: If config file doesn't exist at resolved path
+        yaml.YAMLError: If YAML syntax is invalid (propagated from safe_load)
+    """
     if not CONFIG_PATH.exists():
         raise FileNotFoundError(
             f"Config file not found: {CONFIG_PATH}\n"
@@ -51,24 +62,40 @@ _BASE_CONFIG = _load_base_config()
 def _get_config_value(
     *keys: str,
     default=None,
-    env_var: Optional[str] = None,
-    cast_type: Optional[type] = None
-):
+    env_var: str | None = None,
+    cast_type: type | None = None
+) -> Any:
     """
-    Get a nested value from config.yaml with optional env var override.
+    Get a nested value from config.yaml
+    with optional environment variable override.
 
     Args:
+        *keys: Nested keys to traverse in config dict
+        (e.g., "serving", "api", "port")
+        default: Fallback value if key not found in config or env
+        env_var: Optional environment variable name to check first
         cast_type: Optional type to cast the value to (int, float, bool, list)
+
+    Returns:
+        Config value with optional type casting, or default if not found
+
+    Note:
+        - Environment variables take precedence over YAML config
+        - Boolean parsing: "true", "1", "yes", "on" → True; others → False
+        - List parsing: expects JSON array string (e.g., '["a", "b"]')
+        - Failed casting logs warning and returns default
+        (graceful degradation)
     """
-    # Check env var first (if provided)
+    # env vars override YAML for deployment flexibility
     if env_var and env_var in os.environ:
         value = os.environ[env_var]
         if cast_type and value is not None:
             try:
                 if cast_type == list:
+                    # Parse JSON array for list-type env vars
                     return json.loads(value)
                 elif cast_type == bool:
-                    # Safe boolean parsing: "false", "0", "no", "off" → False
+                    # Safe boolean parsing with common truthy/falsy values
                     return value.lower() in ("true", "1", "yes", "on")
                 else:
                     return cast_type(value)
@@ -80,7 +107,7 @@ def _get_config_value(
                 return default
         return value
 
-    # Traverse nested dict from YAML (types preserved)
+    # Traverse nested dict from YAML (preserves original types)
     value = _BASE_CONFIG
     for key in keys:
         if isinstance(value, dict) and key in value:
@@ -94,11 +121,11 @@ def _get_config_value(
 # ============================================================================
 
 
-# Model path: from config.yaml, with optional MODEL_PATH env override
+# Model path with env override for containerized deployments
 MODEL_PATH = _get_config_value(
     "model", "artifacts", "path",
     default="artifacts/model_bundle.joblib",
-    env_var="MODEL_PATH"  # Optional override for deployment
+    env_var="MODEL_PATH"
 )
 
 # ============================================================================
@@ -123,7 +150,7 @@ RATE_LIMIT_PER_MINUTE = _get_config_value(
 )
 
 # ============================================================================
-# API metadata
+# API metadata (static values)
 # ============================================================================
 
 API_TITLE = "Airline Sentiment Analysis API"
@@ -137,7 +164,7 @@ API_MAX_REQUEST_SIZE = _get_config_value(
 )
 
 # ============================================================================
-# Request/response limits (can be extended in config.yaml if needed)
+# Request/response limits
 # ============================================================================
 
 MAX_TEXT_LENGTH = _get_config_value(
@@ -170,17 +197,32 @@ LOG_FORMAT = "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
 
 
 def get_model_path() -> Path:
-    """Get the configured model path as a Path object."""
+    """
+    Get the configured model path as a Path object.
+
+    Returns:
+        Absolute or relative Path to model bundle
+    """
     return Path(MODEL_PATH)
 
 
 def is_model_available() -> bool:
-    """Check if the model file exists at the configured path."""
+    """
+    Check if the model file exists at the configured path.
+
+    Returns:
+        True if model file exists, False otherwise
+    """
     return get_model_path().exists()
 
 
 def get_api_config() -> dict:
-    """Get all API-related config as a dictionary (for debugging/docs)."""
+    """
+    Get all API-related config as a dictionary for debugging/docs.
+
+    Returns:
+        Dict with key API settings (model path, host, port, limits)
+    """
     return {
         "model_path": MODEL_PATH,
         "host": API_HOST,
