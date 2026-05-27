@@ -45,7 +45,6 @@ def clean_text(
         Order of operations matters: lowercase → URLs → mentions →
         special chars → whitespace
     """
-    # Explicit guard for non-string inputs
     if not isinstance(text, str):
         return ""
 
@@ -94,12 +93,9 @@ def _ensure_nltk_resources() -> None:
     resources = ['punkt', 'wordnet', 'omw-1.4']
     for name in resources:
         try:
-            # raise_on_error=True ensures we catch download failures early
             nltk.download(name, quiet=True, raise_on_error=True)
             logger.debug(f"NLTK resource ready: {name}")
         except Exception as e:
-            # Graceful degradation — lemmatization will fail later
-            # if resources missing
             logger.warning(f"Could not ensure NLTK '{name}': {e}")
 
     _NLTK_INITIALIZED = True
@@ -238,7 +234,6 @@ def create_vectorizer(config: dict) -> TfidfVectorizer | CountVectorizer:
         f"ngram_range={vectorizer_cfg.get('ngram_range')}"
     )
 
-    # Explicit validation with actionable error message
     required_keys = ["type", "max_features", "ngram_range"]
     missing = [k for k in required_keys if k not in vectorizer_cfg]
     if missing:
@@ -272,7 +267,6 @@ def create_vectorizer(config: dict) -> TfidfVectorizer | CountVectorizer:
         )
         return CountVectorizer(**common_params, dtype=np.int64)
     else:
-        # Explicit error for unknown vectorizer type
         raise ValueError(f"Unknown vectorizer type: {vectorizer_type}")
 
 

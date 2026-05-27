@@ -80,7 +80,6 @@ def load_and_prepare_data(
     cfg = load_config(config_path)
     data_cfg = cfg.get("data", {})
 
-    # Validate top-level required keys
     required_data_keys = [
         "path", "target_column", "text_column", "confidence_columns"
     ]
@@ -92,7 +91,6 @@ def load_and_prepare_data(
             f"Expected: {required_data_keys}"
         )
 
-    # Validate nested confidence_columns structure
     conf_cols = data_cfg["confidence_columns"]
     if not isinstance(conf_cols, dict):
         raise TypeError(
@@ -109,7 +107,6 @@ def load_and_prepare_data(
             f"Expected: {required_conf_keys}"
         )
 
-    # Resolve dataset path relative to base_dir
     data_path = Path(data_cfg["path"])
     if not data_path.is_absolute():
         data_path = base_dir / data_path
