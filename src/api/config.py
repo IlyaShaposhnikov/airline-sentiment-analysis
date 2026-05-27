@@ -9,6 +9,11 @@ import os
 import yaml
 from pathlib import Path
 from typing import Optional
+import json
+
+from src.utils.logging_config import setup_logger
+
+logger = setup_logger(__name__)
 
 # ============================================================================
 # Path resolution
@@ -46,20 +51,36 @@ _BASE_CONFIG = _load_base_config()
 def _get_config_value(
     *keys: str,
     default=None,
-    env_var: Optional[str] = None
+    env_var: Optional[str] = None,
+    cast_type: Optional[type] = None
 ):
     """
     Get a nested value from config.yaml with optional env var override.
 
-    Usage:
-        _get_config_value("serving", "api", "port", default=8000)
-        _get_config_value("model", "path", env_var="MODEL_PATH", default="...")
+    Args:
+        cast_type: Optional type to cast the value to (int, float, bool, list)
     """
-    # Check env var first (if provided) for deployment flexibility
+    # Check env var first (if provided)
     if env_var and env_var in os.environ:
-        return os.environ[env_var]
+        value = os.environ[env_var]
+        if cast_type and value is not None:
+            try:
+                if cast_type == list:
+                    return json.loads(value)
+                elif cast_type == bool:
+                    # Safe boolean parsing: "false", "0", "no", "off" → False
+                    return value.lower() in ("true", "1", "yes", "on")
+                else:
+                    return cast_type(value)
+            except (ValueError, TypeError, json.JSONDecodeError):
+                logger.warning(
+                    f"Failed to cast env var '{env_var}' "
+                    f"to {cast_type.__name__}: '{value}'. Using default."
+                )
+                return default
+        return value
 
-    # Traverse nested dict
+    # Traverse nested dict from YAML (types preserved)
     value = _BASE_CONFIG
     for key in keys:
         if isinstance(value, dict) and key in value:
@@ -85,12 +106,20 @@ MODEL_PATH = _get_config_value(
 # ============================================================================
 
 API_HOST = _get_config_value("serving", "api", "host", default="0.0.0.0")
-API_PORT = _get_config_value("serving", "api", "port", default=8000)
-API_ENABLED = _get_config_value("serving", "api", "enabled", default=True)
+API_PORT = _get_config_value(
+    "serving", "api", "port", default=8000, cast_type=int
+)
+API_ENABLED = _get_config_value(
+    "serving", "api", "enabled", default=True, cast_type=bool
+)
 CORS_ALLOWED_ORIGINS = _get_config_value(
     "serving", "api", "cors_origins",
     default=["*"],
-    env_var="CORS_ORIGINS"
+    env_var="CORS_ORIGINS",
+    cast_type=list
+)
+RATE_LIMIT_PER_MINUTE = _get_config_value(
+    "serving", "api", "rate_limit_per_minute", default=60, cast_type=int
 )
 
 # ============================================================================
@@ -103,7 +132,8 @@ API_VERSION = "1.0.0"
 API_DOCS_URL = "/docs"
 API_REDOC_URL = "/redoc"
 API_MAX_REQUEST_SIZE = _get_config_value(
-    "serving", "api", "limits", "max_request_size_mb", default=10
+    "serving", "api", "limits", "max_request_size_mb",
+    default=10, cast_type=int
 )
 
 # ============================================================================
@@ -111,16 +141,16 @@ API_MAX_REQUEST_SIZE = _get_config_value(
 # ============================================================================
 
 MAX_TEXT_LENGTH = _get_config_value(
-    "serving", "api", "limits", "max_text_length", default=1000
+    "serving", "api", "limits", "max_text_length", default=1000, cast_type=int
 )
 MAX_BATCH_SIZE = _get_config_value(
-    "serving", "api", "limits", "max_batch_size", default=100
+    "serving", "api", "limits", "max_batch_size", default=100, cast_type=int
 )
 MIN_EXPLAIN_COUNT = _get_config_value(
-    "serving", "api", "limits", "min_explain_count", default=1
+    "serving", "api", "limits", "min_explain_count", default=1, cast_type=int
 )
 MAX_EXPLAIN_COUNT = _get_config_value(
-    "serving", "api", "limits", "max_explain_count", default=20
+    "serving", "api", "limits", "max_explain_count", default=20, cast_type=int
 )
 
 # ============================================================================
