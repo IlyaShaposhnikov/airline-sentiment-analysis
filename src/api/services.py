@@ -2,27 +2,25 @@
 Model service layer for sentiment prediction.
 
 Handles lazy model loading, thread-safe execution, and prediction logic.
+All public methods are async-safe and handle graceful degradation.
 
 Raises:
     FileNotFoundError: If model bundle not found at configured path
-    HTTPException: If prediction fails during execution (500)
-    or times out (504)
+    HTTPException: If prediction fails
+    during execution (500) or times out (504)
 """
-
 import asyncio
-import threading
 from datetime import datetime, timezone
-from typing import List, Optional
+import threading
 
 from fastapi import HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 
-from src.models import load_model, predict_sentiment
 from src.interpretability import explain_prediction, SHAP_AVAILABLE
+from src.models import load_model, predict_sentiment
 from src.utils.logging_config import setup_logger
-
 from .config import get_model_path, is_model_available
-from .models import PredictionRequest, PredictionResponse, Explanation
+from .models import Explanation, PredictionRequest, PredictionResponse
 
 logger = setup_logger(__name__)
 
@@ -31,8 +29,8 @@ class ModelService:
     """
     Manages model lifecycle and provides thread-safe prediction methods.
 
-    Uses lazy loading and thread pools to keep
-    the async event loop responsive during CPU-heavy inference.
+    Uses lazy loading and thread pools to keep the async event loop
+    responsive during CPU-heavy inference.
 
     Note on multi-worker deployments:
         When running with gunicorn/uvicorn --workers > 1, each worker process
@@ -44,14 +42,15 @@ class ModelService:
     # Configurable timeout for prediction operations (seconds)
     PREDICTION_TIMEOUT_SEC = 30.0
 
-    def __init__(self, model_path: Optional[str] = None):
+    def __init__(self, model_path: str | None = None):
         self._model_path = model_path or str(get_model_path())
         self._model = None
         self._vectorizer = None
         self._target_mapping = None
         self._target_mapping_inv = None
-        self._class_names: Optional[List[str]] = None
+        self._class_names: list[str] | None = None
         self._loaded = False
+        # Lock ensures sklearn thread safety during prediction
         self._predict_lock = threading.Lock()
 
     @property
@@ -85,7 +84,7 @@ class ModelService:
             self._model_path
         )
 
-        # Build ordered class names for consistent indexing
+        # Build ordered class names for consistent indexing across predictions
         self._class_names = [
             self._target_mapping_inv.get(idx, str(idx))
             for idx in sorted(self._model.classes_)
@@ -97,9 +96,9 @@ class ModelService:
     def _build_prediction_response(
         text: str,
         pred_idx: int,
-        proba: List[float],
-        class_names: List[str],
-        explanation: Optional[Explanation],
+        proba: list[float],
+        class_names: list[str],
+        explanation: Explanation | None,
         timestamp: datetime,
     ) -> PredictionResponse:
         """
@@ -149,7 +148,7 @@ class ModelService:
             HTTPException: If prediction or explanation fails
         """
         try:
-            # Lock for sklearn thread safety
+            # Lock ensures thread-safe access to sklearn model during inference
             with self._predict_lock:
                 # 1. Get prediction & probabilities
                 pred_idx, proba = predict_sentiment(
@@ -159,9 +158,10 @@ class ModelService:
                 proba = proba[0]
 
                 # 2. Generate explanation if requested
-                explanation: Optional[Explanation] = None
+                explanation: Explanation | None = None
                 if explain:
-                    # Warn if SHAP requested but unavailable
+                    # Warn if SHAP requested but unavailable →
+                    # fallback to weights
                     if use_shap and not SHAP_AVAILABLE:
                         logger.warning(
                             "SHAP requested but not available — "
@@ -178,7 +178,7 @@ class ModelService:
                         use_shap=use_shap and SHAP_AVAILABLE,
                     )
 
-                    # Safe access to explanation result
+                    # Safe access: explanation result may be None or malformed
                     if exp_result and isinstance(exp_result, dict):
                         method = exp_result.get("method")
                         contributors = exp_result.get("top_contributors")
@@ -238,6 +238,9 @@ class ModelService:
 
         start_time = datetime.now(timezone.utc)
         try:
+            # run_in_threadpool prevents blocking the async event loop
+            # wait_for enforces PREDICTION_TIMEOUT_SEC
+            # to avoid hanging requests
             result = await asyncio.wait_for(
                 run_in_threadpool(
                     self._predict_single_sync,
@@ -305,11 +308,11 @@ class ModelService:
 
     async def predict_batch(
         self,
-        texts: List[str],
+        texts: list[str],
         n_explain: int,
         explain: bool = False,
         use_shap: bool = False,
-    ) -> List[PredictionResponse]:
+    ) -> list[PredictionResponse]:
         """
         Async-safe batch prediction.
         Runs sequentially in thread pool to ensure sklearn thread safety.
@@ -328,8 +331,8 @@ class ModelService:
 
         start_time = datetime.now(timezone.utc)
 
-        # Wrapper for thread pool execution
-        def _run_batch() -> List[PredictionResponse]:
+        # Wrapper for thread pool execution (sequential under lock)
+        def _run_batch() -> list[PredictionResponse]:
             results = []
             for i, text in enumerate(texts):
                 try:
@@ -346,6 +349,8 @@ class ModelService:
             return results
 
         try:
+            # Timeout scales with batch size
+            # to allow longer processing for larger batches
             results = await asyncio.wait_for(
                 run_in_threadpool(_run_batch),
                 timeout=self.PREDICTION_TIMEOUT_SEC * len(texts),
@@ -380,4 +385,5 @@ class ModelService:
 # Global singleton instance for FastAPI dependency injection
 # ============================================================================
 
+# Singleton pattern: one instance shared across all FastAPI routes
 model_service = ModelService()
