@@ -11,10 +11,9 @@ Provides a user-friendly web interface for:
 Usage:
     streamlit run src/dashboard.py
 """
-
-import sys
 from datetime import datetime
 from pathlib import Path
+import sys
 
 import pandas as pd
 import streamlit as st
@@ -24,7 +23,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.api.config import (  # noqa: E402
-    MODEL_PATH, API_TITLE, API_VERSION, MAX_BATCH_SIZE
+    API_TITLE,
+    API_VERSION,
+    MAX_BATCH_SIZE,
+    MODEL_PATH,
 )
 from src.api.services import model_service  # noqa: E402
 from src.interpretability import SHAP_AVAILABLE  # noqa: E402
@@ -37,6 +39,7 @@ logger = setup_logger("dashboard", level="INFO")
 # Initialize session state for explanation settings (persist across reloads)
 # ============================================================================
 
+# Session state keys persist user settings across Streamlit reruns
 if "single_explain" not in st.session_state:
     st.session_state.single_explain = False
 
@@ -77,11 +80,14 @@ st.caption(
 )
 
 
-# Model status indicator
+# Cached function avoids repeated model checks on every rerun
 @st.cache_resource
 def check_model_status() -> dict:
     """
     Check if model is available and loaded (cached to avoid repeated checks).
+
+    Returns:
+        Dict with model status: path, exists, loaded, shap_available, error
     """
     status = {
         "model_path": MODEL_PATH,
@@ -100,7 +106,7 @@ def check_model_status() -> dict:
 
 model_status = check_model_status()
 
-# Status banner
+# Visual status banner: success/warning/error based on model availability
 if model_status["loaded"]:
     st.success("✅ Model loaded and ready")
 elif model_status["exists"]:
@@ -138,8 +144,8 @@ with st.sidebar:
 
     st.divider()
 
+    # Reload button: clears cache and forces re-check of model status
     if st.button("🔄 Reload Model"):
-        # Force re-check by clearing cache
         check_model_status.clear()
         st.rerun()
 
@@ -158,7 +164,7 @@ tab_single, tab_batch, tab_info = st.tabs(
 with tab_single:
     st.header("Predict sentiment for a single tweet")
 
-    # Explanation settings
+    # Explanation settings: persisted via session_state keys
     col1, col2 = st.columns([1, 2])
     with col1:
         explain_toggle = st.checkbox(
@@ -184,7 +190,7 @@ with tab_single:
         key="single_n_explain"
     )
 
-    # Text input + submit button
+    # Form ensures single submission per click (prevents duplicate predictions)
     with st.form("single_prediction_form"):
         text_input = st.text_area(
             "Enter tweet text",
@@ -198,14 +204,14 @@ with tab_single:
             "🚀 Predict", type="primary", disabled=not model_status["exists"]
         )
 
-    # Process prediction
+    # Process prediction only on form submit with non-empty text
     if submitted and text_input.strip():
         with st.spinner("Analyzing sentiment..."):
             try:
-                # Ensure model is loaded
+                # Ensure model is loaded (idempotent)
                 model_service.load()
 
-                # Run prediction via service layer
+                # Run prediction via service layer (sync wrapper for Streamlit)
                 response = model_service.predict_single_sync(
                     text=text_input.strip(),
                     explain=st.session_state.single_explain,
@@ -216,10 +222,10 @@ with tab_single:
                 # Display result
                 st.subheader("📊 Result")
 
-                # Prediction header
+                # Prediction header: sentiment badge + confidence
                 col_prob, col_class = st.columns([2, 1])
                 with col_class:
-                    # Large sentiment badge
+                    # Color-coded badge for quick visual feedback
                     sentiment_color = {
                         "positive": "🟢",
                         "negative": "🔴",
@@ -232,7 +238,7 @@ with tab_single:
                     )
 
                 with col_prob:
-                    # Probabilities as horizontal bar chart
+                    # Horizontal bar chart for probability distribution
                     prob_df = pd.DataFrame(
                         [
                             {"class": k, "probability": v}
@@ -246,7 +252,8 @@ with tab_single:
                         width='stretch',
                     )
 
-                # Explanation section
+                # Explanation section: top contributing words
+                # with color-coded contributions
                 if explain_toggle and response.explanation:
                     st.subheader("🔍 Explanation")
                     st.caption(f"Method: `{response.explanation.method}`")
@@ -260,7 +267,8 @@ with tab_single:
                         "Contribution"
                     ].apply(lambda x: f"{x:+.3f}")
 
-                    # Color-code contributions
+                    # Color-code contributions:
+                    # green=positive, red=negative influence
                     def color_contrib(val):
                         if isinstance(val, str) and val.startswith("+"):
                             return "color: green"
@@ -276,7 +284,7 @@ with tab_single:
                         hide_index=True,
                     )
 
-                # Raw JSON toggle (for developers)
+                # Raw JSON toggle for developers/debugging
                 with st.expander("🔧 View raw response (JSON)"):
                     st.json(response.model_dump(mode='json'), expanded=False)
 
@@ -316,7 +324,7 @@ with tab_batch:
     )
 
     if uploaded_file:
-        # Read and preview
+        # Read and validate uploaded CSV
         try:
             df = pd.read_csv(uploaded_file)
 
@@ -335,11 +343,11 @@ with tab_batch:
             else:
                 st.success(f"✅ Loaded {len(df)} rows")
 
-                # Preview
+                # Preview uploaded data
                 with st.expander("👀 Preview uploaded data"):
                     st.dataframe(df.head(), width='stretch')
 
-                # Explanation settings
+                # Batch explanation settings (persisted via session_state)
                 col1, col2 = st.columns(2)
                 with col1:
                     batch_explain = st.checkbox(
@@ -361,7 +369,7 @@ with tab_batch:
                     key="batch_n_explain"
                 )
 
-                # Main batch form (only submit button)
+                # Form submission triggers batch processing
                 with st.form("batch_prediction_form"):
                     batch_submitted = st.form_submit_button(
                         "🚀 Run Batch Prediction", type="primary"
@@ -372,7 +380,8 @@ with tab_batch:
                         try:
                             model_service.load()
 
-                            # Run predictions
+                            # Run predictions sequentially
+                            # with progress tracking
                             texts = df["text"].dropna().astype(str).tolist()
                             results = []
 
@@ -394,12 +403,14 @@ with tab_batch:
                                     )
                                     results.append(response)
                                 except Exception as e:
+                                    # Log failure but continue processing
+                                    # (partial success)
                                     logger.warning(
                                         f"Batch item {i} failed: {e}"
                                     )
                                     results.append(None)
 
-                                # Update progress
+                                # Update progress bar and status text
                                 progress_bar.progress((i + 1) / len(texts))
                                 status_text.text(
                                     f"Processed {i + 1}/{len(texts)} texts"
@@ -408,6 +419,7 @@ with tab_batch:
                             status_text.text("✅ Done!")
                             progress_bar.empty()
 
+                            # Report partial failures if any
                             failed_count = sum(1 for r in results if r is None)
                             if failed_count > 0:
                                 st.warning(
@@ -416,7 +428,7 @@ with tab_batch:
                                     "check logs for details"
                                 )
 
-                            # Prepare output DataFrame
+                            # Flatten results for CSV/JSON export
                             output_rows = []
                             for i, (text, resp) in enumerate(
                                 zip(texts, results)
@@ -460,7 +472,7 @@ with tab_batch:
 
                             output_df = pd.DataFrame(output_rows)
 
-                            # Display summary
+                            # Display summary metrics
                             st.subheader("📊 Results Summary")
                             col_sum1, col_sum2, col_sum3 = st.columns(3)
                             with col_sum1:
@@ -480,7 +492,7 @@ with tab_batch:
                                     ].mode()[0]
                                     st.metric("Most Common", top_class)
 
-                            # Download buttons
+                            # Download buttons for CSV and JSON exports
                             csv_data = output_df.to_csv(
                                 index=False, encoding="utf-8"
                             )
@@ -505,7 +517,7 @@ with tab_batch:
                                 mime="application/json",
                             )
 
-                            # Preview results
+                            # Preview results table
                             with st.expander("👀 Preview results"):
                                 st.dataframe(
                                     output_df.head(), width='stretch'
@@ -581,6 +593,7 @@ with tab_info:
                 http://localhost:8000/redoc) — Alternative view
     """)
 
+    # Check if backend API is running (for documentation links)
     st.info(
         "💡 **API Required:**\n\n"
         "Interactive documentation requires the backend API "
