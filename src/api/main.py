@@ -24,23 +24,23 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import (
-    API_TITLE,
     API_DESCRIPTION,
-    API_VERSION,
     API_DOCS_URL,
-    API_REDOC_URL,
     API_ENABLED,
     API_HOST,
     API_PORT,
+    API_REDOC_URL,
+    API_TITLE,
+    API_VERSION,
     CORS_ALLOWED_ORIGINS,
 )
 from .models import (
-    PredictionRequest,
     BatchPredictionRequest,
-    PredictionResponse,
     BatchPredictionResponse,
-    HealthResponse,
     ErrorResponse,
+    HealthResponse,
+    PredictionRequest,
+    PredictionResponse,
 )
 from .services import model_service, SHAP_AVAILABLE
 from src.utils.logging_config import setup_logger
@@ -53,7 +53,16 @@ logger = setup_logger(__name__)
 # ============================================================================
 
 def _handle_404(request: Request, exc: HTTPException) -> JSONResponse:
-    """Handle 404 errors with logging."""
+    """
+    Handle 404 errors with structured logging and consistent JSON response.
+
+    Args:
+        request: FastAPI Request object
+        exc: HTTPException with 404 status
+
+    Returns:
+        JSONResponse with standardized ErrorResponse format
+    """
     logger.warning(f"404 Not Found: {request.method} {request.url}")
     return JSONResponse(
         status_code=status.HTTP_404_NOT_FOUND,
@@ -65,10 +74,25 @@ def _handle_404(request: Request, exc: HTTPException) -> JSONResponse:
 
 
 def _handle_422(request: Request, exc: RequestValidationError) -> JSONResponse:
-    """Handle 422 validation errors with logging."""
+    """
+    Handle 422 validation errors with concise logging
+    and consistent JSON response.
+
+    Args:
+        request: FastAPI Request object
+        exc: RequestValidationError from Pydantic validation
+
+    Returns:
+        JSONResponse with standardized ErrorResponse format
+
+    Note:
+        Limits logged errors to first 3 for brevity —
+        full details in exc.errors()
+    """
+    # Limit to first 3 errors to avoid log spam on complex validation failures
     errors_summary = [
         f"{err['loc']}: {err['msg']}" for err in exc.errors()[:3]
-    ]  # Limit to first 3 for brevity
+    ]
     logger.warning(
         f"422 Validation Error on {request.url}: {'; '.join(errors_summary)}"
     )
@@ -85,6 +109,8 @@ def _handle_422(request: Request, exc: RequestValidationError) -> JSONResponse:
 # FastAPI application instance
 # ============================================================================
 
+# Exception handlers registered at app creation
+# for centralized error management
 app = FastAPI(
     title=API_TITLE,
     description=API_DESCRIPTION,
@@ -101,6 +127,7 @@ app = FastAPI(
     }],
 )
 
+# CORS credentials disabled for wildcard origins (security requirement)
 allow_credentials = CORS_ALLOWED_ORIGINS != ["*"]
 
 app.add_middleware(
@@ -123,6 +150,7 @@ async def startup_event() -> None:
     Pre-load model on application startup if API is enabled.
 
     This ensures the first request doesn't pay the model loading penalty.
+    Includes a smoke test to verify model can actually predict.
     """
     if not API_ENABLED:
         logger.warning("API is disabled in config — skipping model preload")
@@ -130,7 +158,7 @@ async def startup_event() -> None:
 
     try:
         model_service.load()
-        # Smoke test: verify model can actually predict
+        # Smoke test: verify model can build valid responses (not just load)
         _ = model_service._build_prediction_response(
             text="smoke_test",
             pred_idx=0,
@@ -141,6 +169,7 @@ async def startup_event() -> None:
         )
         logger.info("Model pre-loaded and smoke-tested successfully")
     except FileNotFoundError as e:
+        # FileNotFoundError is expected if model not trained yet
         logger.warning(f"Model not found at startup: {e}")
         logger.warning("Model will be loaded on first prediction request")
     except Exception as e:
@@ -223,7 +252,8 @@ async def health_check() -> HealthResponse:
     model_operational = model_service.is_loaded
     if model_operational:
         try:
-            # Smoke test: valid response
+            # Smoke test: ensure model can build valid responses
+            # (not just loaded)
             _ = model_service._build_prediction_response(
                 text="health_check",
                 pred_idx=0,
@@ -350,6 +380,8 @@ async def predict_batch(
             f"in {duration_ms:.1f}ms"
         )
 
+        # Ensure processing_time_ms is never zero
+        # (helps with monitoring/alerting)
         return BatchPredictionResponse(
             count=len(predictions),
             predictions=predictions,
@@ -379,6 +411,11 @@ async def global_exception_handler(
     Catch-all exception handler for consistent error responses.
 
     Logs the error and returns a standardized ErrorResponse JSON.
+
+    Note:
+        Registered last to avoid overriding specific handlers
+        (404, 422, HTTPException).
+        Ensures no unhandled exception leaks raw traceback to clients.
     """
     logger.error(
         f"Unhandled exception on {request.method} {request.url}: {exc}",
