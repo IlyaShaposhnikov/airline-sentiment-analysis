@@ -28,27 +28,28 @@ artifacts/predict/predict_YYYYMMDD_HHMMSS.{json|csv}
 """
 
 import argparse
-import json
-import sys
 from datetime import datetime
+import json
 from pathlib import Path
-from typing import Optional, Union, List
+import sys
 
 import pandas as pd
 import matplotlib
-matplotlib.use("Agg")  # Non-interactive backend
+
+# Use non-interactive backend for saving plots without display
+matplotlib.use("Agg")
 
 # Add project root to path for imports
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.models import (  # noqa: E402
-    load_model,
-    predict_sentiment
-)
 from src.interpretability import (  # noqa: E402
     explain_prediction,
     SHAP_AVAILABLE
+)
+from src.models import (  # noqa: E402
+    load_model,
+    predict_sentiment
 )
 from src.utils.logging_config import setup_logger  # noqa: E402
 
@@ -56,7 +57,17 @@ logger = setup_logger("predict", level="INFO")
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
+    """
+    Parse command-line arguments for prediction script.
+
+    Returns:
+        argparse.Namespace with parsed CLI options
+
+    Note:
+        --text and --input are mutually exclusive (argparse handles this)
+        --explain generates interpretable examples (slower, for analysis)
+        --quiet suppresses stdout (useful for CI/automation)
+    """
     parser = argparse.ArgumentParser(
         description="Predict sentiment for airline tweets",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -69,6 +80,8 @@ def parse_args() -> argparse.Namespace:
         help="Path to trained model bundle (.joblib file)",
     )
 
+    # Mutually exclusive group:
+    # user must provide either single text or batch file
     input_group = parser.add_mutually_exclusive_group(required=True)
     input_group.add_argument(
         "--text",
@@ -91,6 +104,7 @@ def parse_args() -> argparse.Namespace:
         help="Output format for predictions (default: json)",
     )
 
+    # Explanation flags: generate interpretable examples (debug/analysis only)
     parser.add_argument(
         "--explain",
         action="store_true",
@@ -122,8 +136,19 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_model_bundle(model_path: Union[str, Path]):
-    """Load trained model, vectorizer, and mappings from bundle."""
+def load_model_bundle(model_path: str | Path):
+    """
+    Load trained model, vectorizer, and mappings from joblib bundle.
+
+    Args:
+        model_path: Path to .joblib file containing model bundle
+
+    Returns:
+        Tuple of (model, vectorizer, target_mapping_inv)
+
+    Raises:
+        FileNotFoundError: If bundle doesn't exist at specified path
+    """
     model_path = Path(model_path)
     if not model_path.exists():
         raise FileNotFoundError(f"Model bundle not found: {model_path}")
@@ -140,7 +165,7 @@ def predict_single(
     model,
     vectorizer,
     text: str,
-    class_names: Optional[List[str]] = None,
+    class_names: list[str] | None = None,
     explain: bool = False,
     use_shap: bool = False,
     n_explain: int = 5,
@@ -148,20 +173,30 @@ def predict_single(
     """
     Predict sentiment for a single text with optional explanation.
 
+    Args:
+        model: Loaded LogisticRegression model
+        vectorizer: Loaded vectorizer (TfidfVectorizer or CountVectorizer)
+        text: Input text to classify
+        class_names: Optional list of class names for readable output
+        explain: Whether to generate word-level explanation
+        use_shap: Whether to use SHAP instead of model weights
+        n_explain: Number of top contributors to include
+
     Returns:
-        Dict with prediction, probabilities, and optional explanation.
+        Dict with prediction, probabilities, timestamp,
+        and optional explanation
     """
-    # Get prediction with probabilities
+    # Get prediction with probabilities (return_proba=True)
     pred_idx, proba = predict_sentiment(
         model, vectorizer, text, return_proba=True
     )
     pred_idx = int(pred_idx[0])
     proba = proba[0]
 
-    # Decode label
+    # Decode integer prediction to human-readable label
     pred_label = class_names[pred_idx]
 
-    # Build result
+    # Build result dict with all required fields for API compatibility
     result = {
         "text": text,
         "predicted_class": pred_label,
@@ -178,7 +213,7 @@ def predict_single(
         "timestamp": datetime.now().isoformat(),
     }
 
-    # Add explanation if requested
+    # Add explanation if requested (local interpretability)
     if explain:
         exp_result = explain_prediction(
             model,
@@ -199,15 +234,34 @@ def predict_single(
 def predict_batch(
     model,
     vectorizer,
-    texts: List[str],
-    class_names: Optional[List[str]] = None,
+    texts: list[str],
+    class_names: list[str] | None = None,
     explain: bool = False,
     use_shap: bool = False,
     n_explain: int = 5,
-) -> List[dict]:
-    """Predict sentiment for multiple texts."""
+) -> list[dict]:
+    """
+    Predict sentiment for multiple texts sequentially.
+
+    Args:
+        model: Loaded LogisticRegression model
+        vectorizer: Loaded vectorizer
+        texts: List of input texts to classify
+        class_names: Optional list of class names for readable output
+        explain: Whether to generate explanations for all predictions
+        use_shap: Whether to use SHAP for explanations
+        n_explain: Number of top contributors per explanation
+
+    Returns:
+        List of prediction dicts (same length as valid input texts)
+
+    Note:
+        Invalid texts (empty/non-string) are skipped with warning
+        Progress logged every 10 items for large batches
+    """
     results = []
     for i, text in enumerate(texts):
+        # Skip invalid inputs
         if not isinstance(text, str) or not text.strip():
             logger.warning(f"Skipping invalid text at index {i}")
             continue
@@ -228,18 +282,32 @@ def predict_batch(
     return results
 
 
-def save_results(results: List[dict], output_path: Union[str, Path]) -> None:
-    """Save predictions to JSON or CSV based on file extension."""
+def save_results(results: list[dict], output_path: str | Path) -> None:
+    """
+    Save predictions to JSON or CSV based on file extension.
+
+    Args:
+        results: List of prediction dicts from predict_batch()
+        output_path: Path to output file (.json or .csv)
+
+    Raises:
+        ValueError: If output format is not .json or .csv
+
+    Note:
+        CSV export flattens nested structures (probabilities, explanations)
+        JSON export preserves full nested structure for API compatibility
+    """
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if output_path.suffix.lower() == ".json":
+        # JSON: preserve full nested structure (API-compatible)
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
         logger.debug(f"Predictions saved to {output_path}")
 
     elif output_path.suffix.lower() == ".csv":
-        # Flatten for CSV export
+        # CSV: flatten nested structures for spreadsheet compatibility
         flat_results = []
         for r in results:
             row = {
@@ -266,6 +334,7 @@ def save_results(results: List[dict], output_path: Union[str, Path]) -> None:
         logger.debug(f"Predictions saved to {output_path}")
 
     else:
+        # Explicit error for unsupported formats
         raise ValueError(
             f"Unsupported output format: {output_path.suffix}. "
             "Use .json or .csv"
@@ -273,12 +342,29 @@ def save_results(results: List[dict], output_path: Union[str, Path]) -> None:
 
 
 def main(args: argparse.Namespace) -> int:
-    """Main prediction pipeline. Returns exit code (0=success)."""
+    """
+    Main prediction pipeline.
+
+    Args:
+        args: Parsed CLI arguments from parse_args()
+
+    Returns:
+        Exit code (0=success, 1=error)
+
+    Pipeline:
+        1. Load model bundle
+        2. Prepare input texts (single or batch)
+        3. Run predictions with optional explanations
+        4. Output results to console (if not --quiet)
+        5. Save results to file (auto-generated path)
+        6. Print summary
+    """
     start_time = datetime.now()
 
-    # Load model bundle
+    # Load model bundle with error handling
     try:
         model, vectorizer, target_mapping_inv = load_model_bundle(args.model)
+        # Build ordered class names for consistent indexing
         class_names = [
             target_mapping_inv.get(idx, str(idx))
             for idx in sorted(target_mapping_inv.keys())
@@ -287,7 +373,7 @@ def main(args: argparse.Namespace) -> int:
         logger.error(f"Failed to load model: {e}")
         return 1
 
-    # Prepare input texts
+    # Prepare input: either single text or batch from CSV
     if args.text:
         texts = [args.text]
         logger.info("Predicting for 1 text")
@@ -305,10 +391,11 @@ def main(args: argparse.Namespace) -> int:
             )
             return 1
 
+        # Drop NaN and ensure all texts are strings
         texts = df["text"].dropna().astype(str).tolist()
         logger.info(f"Loaded {len(texts)} texts from {input_path}")
 
-    # Run predictions
+    # Run predictions (sequential, with optional explanations)
     logger.info("Running predictions...")
     results = predict_batch(
         model,
@@ -320,7 +407,7 @@ def main(args: argparse.Namespace) -> int:
         n_explain=args.n_explain,
     )
 
-    # Output results
+    # Print preview to console (if not --quiet) for immediate feedback
     if not args.quiet:
         print("\n" + "=" * 60)
         print("PREDICTION RESULTS")
@@ -346,7 +433,7 @@ def main(args: argparse.Namespace) -> int:
 
     output_path = None
 
-    # Save to file if requested
+    # Auto-save results to artifacts/predict/ with timestamped filename
     if args.output:
         output_dir = Path(PROJECT_ROOT) / "artifacts" / "predict"
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -362,7 +449,7 @@ def main(args: argparse.Namespace) -> int:
             logger.error(f"Failed to save results: {e}")
             return 1
 
-    # Summary
+    # Summary logging and optional stdout output
     elapsed = datetime.now() - start_time
     logger.info(f"Prediction completed in {elapsed}")
     logger.info(f"Processed {len(results)} texts")
