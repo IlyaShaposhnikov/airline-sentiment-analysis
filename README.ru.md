@@ -31,7 +31,23 @@
 | **Панель управления** | Интерфейс для одиночных и пакетных предсказаний, экспорт в CSV/JSON, проверка здоровья API в реальном времени, сохранение состояния сессии |
 | **Тестирование и CI** | Юнит- и интеграционные тесты, условные воркфлоу для PR/main, pytest-timeout, проверка уязвимостей через pip-audit, интеграция с Codecov |
 
-## Архитектура
+## Результаты и качество модели
+
+### Сравнение режимов работы
+
+| Метрика | Multiclass (3 класса) | Binary (positive/negative) |
+|---------|----------------------|--------------------------|
+| **Матрица ошибок** | ![Multiclass CM](docs/images/multiclass/confusion_matrix.png) | ![Binary CM](docs/images/binary/confusion_matrix.png) |
+| **Positive признаки** | ![Positive Multi](docs/images/multiclass/feature_importance_positive.png) | ![Positive Binary](docs/images/binary/feature_importance_positive.png) |
+| **Negative признаки** | ![Negative Multi](docs/images/multiclass/feature_importance_negative.png) | ![Negative Binary](docs/images/binary/feature_importance_negative.png) |
+| **Neutral признаки** | ![Neutral Multi](docs/images/multiclass/feature_importance_neutral.png) | *N/A* |
+
+> 💡 **Примечания**:
+> - Binary режим исключает нейтральный класс (target=2), фокусируясь исключительно на позитивных/негативных сигналах
+> - Важность признаков показывает топ-20 слов по весовому коэффициенту логистической регрессии
+> - Матрицы ошибок нормализованы (по строкам) для объективного сравнения классов
+
+## Стркутура проекта
 
 ```
 airline-sentiment-analysis/
@@ -41,6 +57,7 @@ airline-sentiment-analysis/
 ├── data/
 │   ├── Tweets.csv               # Исходный датасет (загружается пользователем)
 │   └── DATA_GUIDE.md            # Документация датасета
+├── docs/images/                 # Визуализации результатов модели (multiclass/binary)
 ├── src/
 │   ├── constants.py             # Глобальные константы: маппинг целевых меток, пути, значения по умолчанию
 │   ├── data_loader.py           # Загрузка данных и фильтрация по уверенности

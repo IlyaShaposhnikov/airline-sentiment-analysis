@@ -161,8 +161,15 @@ def plot_feature_importance(
     except AttributeError:
         feature_names = np.array(vectorizer.get_feature_names())
 
-    coef = model.coef_[class_idx]
     classes = model.classes_
+
+    if len(classes) == 2 and model.coef_.shape[0] == 1:
+        # Binary: single row represents decision boundary
+        # Positive class (idx=1) = +coef[0], Negative class (idx=0) = -coef[0]
+        coef = model.coef_[0] if class_idx == 1 else -model.coef_[0]
+    else:
+        # Multiclass: normal access
+        coef = model.coef_[class_idx]
 
     class_label = (
         class_names[class_idx]

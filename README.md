@@ -31,6 +31,22 @@ This project demonstrates a complete machine learning lifecycle: from raw data i
 | **Dashboard** | Single/batch prediction UI, CSV/JSON export, real-time API health check, session state persistence |
 | **Testing & CI** | Unit + integration tests, conditional PR/main workflows, pytest-timeout, pip-audit security checks, Codecov integration |
 
+## Model Performance & Results
+
+### Side-by-Side Comparison
+
+| Metric | Multiclass (3 classes) | Binary (positive/negative) |
+|--------|----------------------|--------------------------|
+| **Confusion Matrix** | ![Multiclass CM](docs/images/multiclass/confusion_matrix.png) | ![Binary CM](docs/images/binary/confusion_matrix.png) |
+| **Positive Features** | ![Positive Multi](docs/images/multiclass/feature_importance_positive.png) | ![Positive Binary](docs/images/binary/feature_importance_positive.png) |
+| **Negative Features** | ![Negative Multi](docs/images/multiclass/feature_importance_negative.png) | ![Negative Binary](docs/images/binary/feature_importance_negative.png) |
+| **Neutral Features** | ![Neutral Multi](docs/images/multiclass/feature_importance_neutral.png) | *N/A* |
+
+> 💡 **Notes**:
+> - Binary mode excludes neutral class (target=2), focusing on clear positive/negative signals
+> - Feature importance shows top 20 words by logistic regression coefficient weight
+> - Confusion matrices are normalized (row-wise) for fair class comparison
+
 ## Architecture
 
 ```
@@ -41,6 +57,7 @@ airline-sentiment-analysis/
 ├── data/
 │   ├── Tweets.csv               # Raw dataset (downloaded by user)
 │   └── DATA_GUIDE.md            # Dataset documentation
+├── docs/images/                 # Model performance visualizations (multiclass/binary)
 ├── src/
 │   ├── constants.py             # Project-wide constants: target mappings, paths, default values
 │   ├── data_loader.py           # Data ingestion & confidence filtering
