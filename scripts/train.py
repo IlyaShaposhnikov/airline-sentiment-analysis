@@ -13,11 +13,11 @@ Output artifacts are saved to artifacts/ directory.
 """
 
 import argparse
+from datetime import datetime
 import json
+from pathlib import Path
 import sys
 import warnings
-from datetime import datetime
-from pathlib import Path
 
 import matplotlib
 import pandas as pd
@@ -32,24 +32,24 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.data_loader import load_config, load_and_prepare_data  # noqa: E402
-from src.preprocessing import create_vectorizer, preprocess_texts  # noqa: E402
-from src.models import (  # noqa: E402
-    train_model,
-    prepare_sample_weights,
-    save_model,
+from src.interpretability import (  # noqa: E402
+    explain_prediction,
+    get_top_features_by_weight,
+    plot_feature_importance,
+    SHAP_AVAILABLE,
 )
 from src.metrics import (  # noqa: E402
     compute_comprehensive_metrics,
-    plot_confusion_matrix,
     export_metrics,
     get_top_misclassified,
+    plot_confusion_matrix,
 )
-from src.interpretability import (  # noqa: E402
-    get_top_features_by_weight,
-    plot_feature_importance,
-    explain_prediction,
-    SHAP_AVAILABLE,
+from src.models import (  # noqa: E402
+    prepare_sample_weights,
+    save_model,
+    train_model,
 )
+from src.preprocessing import create_vectorizer, preprocess_texts  # noqa: E402
 from src.utils.logging_config import setup_logger  # noqa: E402
 
 # Configure root logger
@@ -57,7 +57,17 @@ logger = setup_logger("train", level="INFO", log_file="artifacts/training.log")
 
 
 def parse_args() -> argparse.Namespace:
-    """Parse command-line arguments."""
+    """
+    Parse command-line arguments for training script.
+
+    Returns:
+        argparse.Namespace with parsed CLI options
+
+    Note:
+        --binary-mode excludes neutral class (target=2)
+        --explain generates sample explanations (slow, for debugging)
+        --use-shap requires shap package installed
+    """
     parser = argparse.ArgumentParser(
         description="Train airline sentiment classification model",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -77,6 +87,7 @@ def parse_args() -> argparse.Namespace:
         help="Directory to save model and reports",
     )
 
+    # Binary mode: filter out neutral class for simpler classification task
     parser.add_argument(
         "--binary-mode",
         action="store_true",
@@ -97,6 +108,7 @@ def parse_args() -> argparse.Namespace:
         help="Generate explanations for sample predictions",
     )
 
+    # Explanation flags: generate interpretable examples (debug/analysis only)
     parser.add_argument(
         "--n-explain",
         type=int,
@@ -110,6 +122,8 @@ def parse_args() -> argparse.Namespace:
         help="Use SHAP for explanations (requires shap package)",
     )
 
+    # Seed override: useful for reproducibility experiments
+    # without editing config
     parser.add_argument(
         "--seed",
         type=int,
@@ -123,7 +137,19 @@ def parse_args() -> argparse.Namespace:
 def filter_binary_data(
     df: pd.DataFrame, target_col: str = "target"
 ) -> pd.DataFrame:
-    """Filter DataFrame to keep only positive (1) and negative (0) samples."""
+    """
+    Filter DataFrame to keep only positive (1) and negative (0) samples.
+
+    Args:
+        df: Input DataFrame with encoded target column
+        target_col: Name of target column (default: "target")
+
+    Returns:
+        Filtered DataFrame with only binary classes
+
+    Note:
+        Used when --binary-mode flag is passed to training script
+    """
     df_binary = df[df[target_col].isin([0, 1])].copy()
     logger.info(
         f"Binary mode: filtered from {len(df)} to {len(df_binary)} samples "
@@ -133,7 +159,27 @@ def filter_binary_data(
 
 
 def main(args: argparse.Namespace) -> int:
-    """Main training pipeline. Returns exit code (0=success)."""
+    """
+    Main training pipeline.
+
+    Args:
+        args: Parsed CLI arguments from parse_args()
+
+    Returns:
+        Exit code (0=success, 1=error)
+
+    Pipeline stages:
+        1. Load configuration
+        2. Load and prepare data
+        3. Preprocess texts and vectorize
+        4. Train/test split (stratified)
+        5. Train model
+        6. Evaluate model
+        7. Generate visualizations and reports
+        8. Interpretability: top features and explanations
+        9. Export metrics and save model
+        10. Summary and exit
+    """
     start_time = datetime.now()
     logger.info(
         f"Training started at {start_time.strftime('%Y-%m-%d %H:%M:%S')}"
@@ -153,7 +199,8 @@ def main(args: argparse.Namespace) -> int:
     cfg = load_config(config_path)
     logger.info(f"Loaded config from {config_path}")
 
-    # Override random_state if specified via CLI
+    # CLI seed override takes precedence over config
+    # for reproducibility experiments
     if args.seed is not None:
         if "model" not in cfg:
             cfg["model"] = {}
@@ -185,7 +232,7 @@ def main(args: argparse.Namespace) -> int:
         f"target distribution: {df['target'].value_counts().to_dict()}"
     )
 
-    # Optional: binary classification mode
+    # Optional binary mode: exclude neutral class for simpler task
     if args.binary_mode:
         df = filter_binary_data(df)
         class_names = ["negative", "positive"]
@@ -208,7 +255,8 @@ def main(args: argparse.Namespace) -> int:
     vectorizer = create_vectorizer(cfg)
     texts_processed = preprocess_texts(df["text"].tolist(), cfg)
 
-    # Vectorize
+    # fit_transform learns vocabulary from training data only
+    # (prevents data leakage)
     X = vectorizer.fit_transform(texts_processed)
     y = df["target"].values
     logger.info(f"Vectorized: {X.shape[0]} samples × {X.shape[1]} features")
@@ -223,6 +271,8 @@ def main(args: argparse.Namespace) -> int:
     model_cfg = cfg.get("model", {})
     training_cfg = model_cfg.get("training", {})
     stratify_enabled = split_cfg.get("stratify", True)
+    # Stratify preserves class distribution in train/test splits
+    # (critical for imbalanced data)
     stratify_value = y if stratify_enabled else None
 
     X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
@@ -243,9 +293,12 @@ def main(args: argparse.Namespace) -> int:
         )
         return 1
 
+    # Extract original texts for test set to enable explanations
+    # and misclassified analysis
     test_texts = df["text"].iloc[-X_test.shape[0]:].tolist()
 
-    # Prepare sample weights for confidence-aware training
+    # Confidence-based sample weights:
+    # high-confidence annotations influence training more
     sample_weights = None
     if training_cfg.get("use_confidence_weights", True):
         sample_weights = prepare_sample_weights(
@@ -267,7 +320,8 @@ def main(args: argparse.Namespace) -> int:
     y_pred = model.predict(X_test)
     y_proba = model.predict_proba(X_test)
 
-    # Compute comprehensive metrics
+    # compute_comprehensive_metrics auto-detects binary/multiclass
+    # and computes appropriate metrics
     reporting_cfg = eval_cfg.get("reporting", {})
     metrics = compute_comprehensive_metrics(
         y_test,
@@ -275,7 +329,7 @@ def main(args: argparse.Namespace) -> int:
         y_proba,
         config=reporting_cfg,
         class_names=class_names,
-        auto_export=False,
+        auto_export=False,  # Export handled separately for more control
         output_dir=output_dir,
         export_filename="metrics",
     )
@@ -310,7 +364,8 @@ def main(args: argparse.Namespace) -> int:
             title="Confusion Matrix (Test Set)",
         )
 
-        # Feature importance plots for each class
+        # Feature importance per class:
+        # shows which words drive predictions for each sentiment
         plot_settings = interp_cfg.get("plot_settings", {})
 
         for class_idx, class_name in enumerate(class_names):
@@ -335,7 +390,8 @@ def main(args: argparse.Namespace) -> int:
     if args.explain:
         logger.info("Generating explanations...")
 
-        # Top features by weight
+        # Top features by weight:
+        # global model interpretability (not per-prediction)
         top_features = get_top_features_by_weight(
             model,
             vectorizer,
@@ -350,7 +406,8 @@ def main(args: argparse.Namespace) -> int:
             json.dump(top_features, f, indent=2, ensure_ascii=False)
         logger.info(f"Top features saved to {features_path}")
 
-        # Explain sample predictions
+        # Explain sample predictions:
+        # local interpretability for debugging/analysis
         n_explain = min(args.n_explain, X_test.shape[0])
         explanations = []
 
@@ -374,7 +431,7 @@ def main(args: argparse.Namespace) -> int:
             f"Saved {len(explanations)} explanations to {explanations_path}"
         )
 
-        # Log sample explanations to console
+        # Log sample explanations to console (quick feedback during training)
         logger.info("\nSample predictions:")
         for exp in explanations[:3]:  # Show first 3
             contributors = ", ".join(
@@ -390,7 +447,7 @@ def main(args: argparse.Namespace) -> int:
     # =========================================================================
     logger.info("Saving artifacts...")
 
-    # Export metrics
+    # Export metrics in configured formats (JSON/CSV)
     export_formats = reporting_cfg.get("export_formats", ["json", "csv"])
     export_metrics(
         metrics,
@@ -399,7 +456,7 @@ def main(args: argparse.Namespace) -> int:
         formats=export_formats,
     )
 
-    # Save top misclassified examples (optional)
+    # Save top misclassified examples for manual review and model debugging
     misclassified_cfg = reporting_cfg.get("misclassified_examples", {})
     if misclassified_cfg.get("include_text", True):
         df_misclassified = get_top_misclassified(
@@ -417,12 +474,14 @@ def main(args: argparse.Namespace) -> int:
                 f"Saved misclassified examples to {misclassified_path}"
             )
 
-    # Save model bundle
+    # Save model bundle:
+    # includes model, vectorizer, and label mappings for inference
     model_path = output_dir / "model_bundle.joblib"
     save_model(model, vectorizer, output_dir, filename="model_bundle.joblib")
     logger.info(f"Model saved to {model_path}")
 
-    # Save config copy for reproducibility
+    # Save config copy:
+    # ensures reproducibility by capturing exact training settings
     config_backup = output_dir / "config_used.yaml"
     with open(config_backup, "w", encoding="utf-8") as f:
         import yaml
@@ -444,7 +503,7 @@ def main(args: argparse.Namespace) -> int:
             size_kb = f.stat().st_size / 1024
             logger.debug(f"  - {f.name} ({size_kb:.1f} KB)")
 
-    # Print quick summary
+    # Print quick summary to stdout for immediate feedback
     print("\n" + "=" * 60)
     print("TRAINING SUMMARY")
     print("=" * 60)
@@ -466,6 +525,7 @@ def main(args: argparse.Namespace) -> int:
 
 if __name__ == "__main__":
     # Suppress sklearn convergence warnings for cleaner output
+    # (not errors, just info)
     warnings.filterwarnings("ignore", category=ConvergenceWarning)
 
     args = parse_args()
