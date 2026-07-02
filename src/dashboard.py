@@ -35,6 +35,35 @@ from src.utils.logging_config import setup_logger  # noqa: E402
 # Configure logging (Streamlit captures stdout/stderr)
 logger = setup_logger("dashboard", level="INFO")
 
+TEXT_COLUMN_ALIASES = (
+    "text",
+    "tweet",
+    "tweet_text",
+    "full_text",
+    "content",
+    "message",
+)
+
+
+def normalize_text_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Return a copy with a supported text column renamed to text."""
+    renamed = df.copy()
+    renamed.columns = [str(column).strip() for column in renamed.columns]
+
+    if "text" in renamed.columns:
+        return renamed
+
+    column_lookup = {
+        str(column).strip().lower(): column
+        for column in renamed.columns
+    }
+    for alias in TEXT_COLUMN_ALIASES:
+        source_column = column_lookup.get(alias)
+        if source_column is not None:
+            return renamed.rename(columns={source_column: "text"})
+
+    return renamed
+
 # ============================================================================
 # Initialize session state for explanation settings (persist across reloads)
 # ============================================================================
@@ -335,9 +364,13 @@ with tab_batch:
                 )
                 st.stop()
 
+            df = normalize_text_column(df)
+
             if "text" not in df.columns:
                 st.error(
-                    "❌ CSV must contain a 'text' column. "
+                    "❌ CSV must contain a text column. "
+                    "Supported names: text, tweet, tweet_text, "
+                    "full_text, content, message. "
                     f"Found: {list(df.columns)}"
                 )
             else:

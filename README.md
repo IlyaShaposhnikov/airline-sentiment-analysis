@@ -133,6 +133,11 @@ streamlit run src/dashboard.py
 ```
 UI opens at: http://localhost:8501
 
+The dashboard batch tab accepts CSV files with `text`, `tweet`, `tweet_text`,
+`full_text`, `content`, or `message` columns. Reviewed exports from tools such
+as TweetClaw can use one of those columns for airline tweet prediction without
+manual renaming.
+
 ## Configuration
 
 All behavior is controlled via `configs/config.yaml`. Key sections:
