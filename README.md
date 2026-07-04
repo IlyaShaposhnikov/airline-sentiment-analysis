@@ -51,7 +51,7 @@ This project demonstrates a complete machine learning lifecycle: from raw data i
 
 ```
 airline-sentiment-analysis/
-├── configs/config.yaml
+├── configs/
 │   ├── config.yaml              # Centralized configuration (nested, validated)
 │   └── CONFIG_GUIDE.md          # Detailed reference for config parameters, validation rules, and env overrides
 ├── data/
@@ -187,6 +187,25 @@ curl -X POST http://localhost:8000/predict/batch \
   -H "Content-Type: application/json" \
   -d '{"texts": ["Amazing!", "Terrible delay", "Meh"], "explain": false}'
 ```
+
+### Xquik Tweet Search Input
+
+Use Xquik when you need current X search results before running the airline
+sentiment model. Keep collection outside the model service, then post the
+returned tweet text to the existing batch endpoint:
+
+```bash
+curl "https://xquik.com/api/v1/x/tweets/search?q=airline%20delay" \
+  -H "x-api-key: $XQUIK_API_KEY" \
+  | jq '{texts: [.tweets[].text][0:100], explain: false}' \
+  | curl -X POST http://localhost:8000/predict/batch \
+      -H "Content-Type: application/json" \
+      -d @-
+```
+
+This preserves the project boundary: Xquik handles X data retrieval, and this
+repository keeps preprocessing, inference, explanations, and exports focused on
+sentiment analysis.
 
 ## Dependencies
 
