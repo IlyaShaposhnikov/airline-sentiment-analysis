@@ -16,7 +16,11 @@ import threading
 from fastapi import HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 
-from src.interpretability import explain_prediction, SHAP_AVAILABLE
+from src.interpretability import (
+    explain_prediction,
+    SHAP_AVAILABLE,
+    supports_word_explanations,
+)
 from src.models import load_model, predict_sentiment
 from src.utils.logging_config import setup_logger
 from .config import get_model_path, is_model_available
@@ -49,6 +53,7 @@ class ModelService:
         self._target_mapping = None
         self._target_mapping_inv = None
         self._class_names: list[str] | None = None
+        self._explanations_supported = True
         self._loaded = False
         # Lock ensures sklearn thread safety during prediction
         self._predict_lock = threading.Lock()
@@ -89,6 +94,20 @@ class ModelService:
             self._target_mapping_inv.get(idx, str(idx))
             for idx in sorted(self._model.classes_)
         ]
+
+        # Dense sentence embeddings have no word vocabulary → no word-level
+        # explanations; requests with explain=true get explanation=None
+        self._explanations_supported = supports_word_explanations(
+            self._vectorizer
+        )
+
+        # Heavy encoders (sentence embeddings) load lazily; warm up here so
+        # the first request does not pay the model-loading cost
+        warmup = getattr(self._vectorizer, "warmup", None)
+        if callable(warmup):
+            logger.info("Warming up vectorizer...")
+            warmup()
+
         self._loaded = True
         logger.info(f"Model loaded: classes={self._class_names}")
 
@@ -159,7 +178,13 @@ class ModelService:
 
                 # 2. Generate explanation if requested
                 explanation: Explanation | None = None
-                if explain:
+                if explain and not self._explanations_supported:
+                    logger.warning(
+                        "Explanation requested but not supported for "
+                        f"{type(self._vectorizer).__name__}; "
+                        "returning prediction without explanation"
+                    )
+                elif explain:
                     # Warn if SHAP requested but unavailable →
                     # fallback to weights
                     if use_shap and not SHAP_AVAILABLE:

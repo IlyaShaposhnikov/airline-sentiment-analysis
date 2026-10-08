@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
+import numpy as np
 import pytest
 
 # Add project root to path for imports
@@ -142,3 +143,71 @@ def api_valid_prediction_response_data() -> dict:
         "probabilities": {"negative": 0.1, "positive": 0.8, "neutral": 0.1},
         "confidence": 0.8,
     }
+
+
+# ============================================================================
+# Sentence-embedding fixtures (no torch / no model download)
+# ============================================================================
+
+
+class FakeSentenceEncoder:
+    """
+    Deterministic stand-in for SentenceTransformer.
+
+    Encodes sentiment-bearing words into fixed dimensions, so a linear
+    classifier can learn from it. Records every call for assertions.
+    """
+
+    POSITIVE = {"great", "love", "thanks", "awesome"}
+    NEGATIVE = {"delay", "lost", "awful", "rude"}
+
+    dim = 8
+
+    def __init__(self):
+        self.calls: list[dict] = []
+        self.loads = {"count": 0}
+
+    def encode(
+        self,
+        texts,
+        batch_size=32,
+        normalize_embeddings=False,
+        show_progress_bar=False,
+        convert_to_numpy=True,
+    ):
+        self.calls.append({
+            "texts": list(texts),
+            "batch_size": batch_size,
+            "normalize_embeddings": normalize_embeddings,
+        })
+        out = np.zeros((len(texts), self.dim), dtype=np.float64)
+        for i, text in enumerate(texts):
+            words = text.lower().replace("!", " ").split()
+            out[i, 0] = sum(w in self.POSITIVE for w in words)
+            out[i, 1] = sum(w in self.NEGATIVE for w in words)
+            out[i, 2] = len(words)
+            out[i, 3] = 1.0  # bias-like constant, keeps rows non-zero
+            out[i, 4 + hash(text) % 4] += 0.01
+        if normalize_embeddings:
+            out /= np.linalg.norm(out, axis=1, keepdims=True)
+        return out
+
+
+@pytest.fixture
+def fake_encoder(monkeypatch) -> FakeSentenceEncoder:
+    """
+    Patch the Sentence-Transformers loader with a fake encoder:
+    no torch, no model download. Counts loads in ``encoder.loads``.
+    """
+    import src.embeddings as embeddings_module
+
+    encoder = FakeSentenceEncoder()
+
+    def fake_loader(model_name, device):
+        encoder.loads["count"] += 1
+        return encoder
+
+    monkeypatch.setattr(
+        embeddings_module, "_load_sentence_transformer", fake_loader
+    )
+    return encoder

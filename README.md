@@ -66,6 +66,7 @@ airline-sentiment-analysis/
 │   ├── constants.py             # Project-wide constants: target mappings, paths, default values
 │   ├── data_loader.py           # Data ingestion & confidence filtering
 │   ├── preprocessing.py         # Text cleaning, lemmatization, vectorization
+│   ├── embeddings.py            # Sentence-Transformers embeddings as a sklearn-style vectorizer (optional)
 │   ├── models.py                # Training, evaluation, persistence
 │   ├── metrics.py               # Metrics computation & reporting
 │   ├── interpretability.py      # Weight/SHAP explanations
@@ -82,6 +83,7 @@ airline-sentiment-analysis/
 │   └── predict.py               # CLI inference & batch export
 ├── tests/
 │   ├── conftest.py              # Shared pytest fixtures, markers, and global test configuration
+│   ├── test_embeddings.py       # Embedding vectorizer, pipeline & API path (fake encoder, no download)
 │   ├── test_data_loader.py      # Unit tests for the train/test split helper (alignment, stratification)
 │   ├── test_preprocessing.py    # Unit tests for text cleaning, tokenization, and vectorization
 │   ├── test_ml_models.py        # Unit tests for model training, evaluation, and persistence logic
@@ -94,7 +96,8 @@ airline-sentiment-analysis/
 ├── .gitignore                   # Git ignore patterns
 ├── README.md                    # Project documentation (English)
 ├── README.ru.md                 # Project documentation (Russian)
-└── requirements.txt             # Project dependencies
+├── requirements.txt             # Project dependencies
+└── requirements-dl.txt          # Optional deep-learning dependencies (torch, sentence-transformers)
 ```
 
 ## Quick Start
@@ -126,6 +129,14 @@ python scripts/train.py
 # --explain --n-explain 5  # Generate prediction explanations
 ```
 Artifacts will be saved to `artifacts/` (model bundle, metrics, plots, logs).
+
+**Optional: sentence embeddings instead of TF-IDF.** Texts are encoded with a pretrained [Sentence-Transformers](https://www.sbert.net/) model (`all-MiniLM-L6-v2` by default, see `preprocessing.embedding` in the config) and classified by the same logistic regression:
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu  # CPU-only build
+pip install -r requirements-dl.txt
+python scripts/train.py --vectorizer sentence_embedding --output-dir artifacts/embedding_lr
+```
+The model is downloaded once (~90 MB) into the Hugging Face cache. Word-level explanations and feature-importance plots are not available for embeddings (dimensions are not words): the API returns predictions with `explanation: null`.
 
 ### 4. Run REST API
 ```bash
@@ -202,6 +213,7 @@ curl -X POST http://localhost:8000/predict/batch \
 | NLP | `nltk`, `shap` (optional) |
 | API | `fastapi`, `uvicorn`, `pydantic>=2` |
 | UI | `streamlit`, `matplotlib`, `seaborn` |
+| Deep learning (optional) | `torch`, `sentence-transformers` |
 | Testing | `pytest`, `pytest-cov`, `pytest-asyncio`, `pytest-timeout`, `pip-audit` |
 
 ## Author

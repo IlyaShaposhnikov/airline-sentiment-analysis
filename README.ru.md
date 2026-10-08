@@ -66,6 +66,7 @@ airline-sentiment-analysis/
 │   ├── constants.py             # Глобальные константы: маппинг целевых меток, пути, значения по умолчанию
 │   ├── data_loader.py           # Загрузка данных и фильтрация по уверенности
 │   ├── preprocessing.py         # Очистка текста, лемматизация, векторизация
+│   ├── embeddings.py            # Эмбеддинги Sentence-Transformers как векторизатор в стиле sklearn (опционально)
 │   ├── models.py                # Обучение, оценка, сохранение моделей
 │   ├── metrics.py               # Вычисление метрик и отчетность
 │   ├── interpretability.py      # Объяснения через веса модели / SHAP
@@ -82,6 +83,7 @@ airline-sentiment-analysis/
 │   └── predict.py               # CLI-инференс и пакетный экспорт
 ├── tests/
 │   ├── conftest.py              # Общие фикстуры pytest, маркеры, глобальная конфигурация тестов
+│   ├── test_embeddings.py       # Векторизатор эмбеддингов, пайплайн и API (фейковый энкодер, без скачивания)
 │   ├── test_data_loader.py      # Юнит-тесты разбиения train/test (согласованность строк, стратификация)
 │   ├── test_preprocessing.py    # Юнит-тесты очистки текста, токенизации, векторизации
 │   ├── test_ml_models.py        # Юнит-тесты обучения, оценки, сохранения моделей
@@ -94,7 +96,8 @@ airline-sentiment-analysis/
 ├── .gitignore                   # Шаблоны игнорирования для Git
 ├── README.md                    # Документация проекта (английский)
 ├── README.ru.md                 # Документация проекта (русский)
-└── requirements.txt             # Зависимости проекта
+├── requirements.txt             # Зависимости проекта
+└── requirements-dl.txt          # Опциональные DL-зависимости (torch, sentence-transformers)
 ```
 
 ## Быстрый старт
@@ -126,6 +129,14 @@ python scripts/train.py
 # --explain --n-explain 5  # Сгенерировать объяснения предсказаний
 ```
 Артефакты будут сохранены в `artifacts/` (пакет модели, метрики, графики, логи).
+
+**Опционально: эмбеддинги предложений вместо TF-IDF.** Тексты кодируются предобученной моделью [Sentence-Transformers](https://www.sbert.net/) (по умолчанию `all-MiniLM-L6-v2`, см. `preprocessing.embedding` в конфиге) и классифицируются той же логистической регрессией:
+```bash
+pip install torch --index-url https://download.pytorch.org/whl/cpu  # сборка только для CPU
+pip install -r requirements-dl.txt
+python scripts/train.py --vectorizer sentence_embedding --output-dir artifacts/embedding_lr
+```
+Модель скачивается один раз (~90 МБ) в кэш Hugging Face. Пословные объяснения и графики важности признаков для эмбеддингов недоступны (измерения не являются словами): API возвращает предсказания с `explanation: null`.
 
 ### 4. Запуск REST API
 ```bash
@@ -204,6 +215,7 @@ curl -X POST http://localhost:8000/predict/batch \
 | NLP | `nltk`, `shap` (опционально) |
 | API | `fastapi`, `uvicorn`, `pydantic>=2` |
 | Интерфейс | `streamlit`, `matplotlib`, `seaborn` |
+| Глубокое обучение (опционально) | `torch`, `sentence-transformers` |
 | Тестирование | `pytest`, `pytest-cov`, `pytest-asyncio`, `pytest-timeout`, `pip-audit` |
 
 ## Автор

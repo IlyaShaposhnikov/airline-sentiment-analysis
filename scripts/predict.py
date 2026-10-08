@@ -45,7 +45,8 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.interpretability import (  # noqa: E402
     explain_prediction,
-    SHAP_AVAILABLE
+    SHAP_AVAILABLE,
+    supports_word_explanations,
 )
 from src.models import (  # noqa: E402
     load_model,
@@ -213,8 +214,9 @@ def predict_single(
         "timestamp": datetime.now().isoformat(),
     }
 
-    # Add explanation if requested (local interpretability)
-    if explain:
+    # Add explanation if requested (local interpretability);
+    # not available for dense sentence embeddings
+    if explain and supports_word_explanations(vectorizer):
         exp_result = explain_prediction(
             model,
             vectorizer,
@@ -394,6 +396,12 @@ def main(args: argparse.Namespace) -> int:
         # Drop NaN and ensure all texts are strings
         texts = df["text"].dropna().astype(str).tolist()
         logger.info(f"Loaded {len(texts)} texts from {input_path}")
+
+    if args.explain and not supports_word_explanations(vectorizer):
+        logger.warning(
+            "--explain ignored: word-level explanations are not supported "
+            f"for {type(vectorizer).__name__}"
+        )
 
     # Run predictions (sequential, with optional explanations)
     logger.info("Running predictions...")

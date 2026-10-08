@@ -13,6 +13,10 @@ import re
 import numpy as np
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 
+from .embeddings import (
+    DEFAULT_EMBEDDING_MODEL,
+    SentenceEmbeddingVectorizer,
+)
 from .utils.logging_config import setup_logger
 
 logger = setup_logger(__name__)
@@ -254,7 +258,57 @@ def build_text_preprocessor(config: dict, lowercase: bool = True) -> partial:
     )
 
 
-def create_vectorizer(config: dict) -> TfidfVectorizer | CountVectorizer:
+# Light cleaning for transformer encoders: casing, punctuation and emoji
+# carry sentiment and the encoder's own tokenizer handles them. URLs are
+# noise; mentions are removed for parity with the TF-IDF setup (airline
+# handles would otherwise act as a strong, non-linguistic prior).
+EMBEDDING_CLEANING_DEFAULTS: dict = {
+    "lowercase": False,
+    "remove_urls": True,
+    "remove_mentions": True,
+    "remove_special_chars": False,
+    "remove_extra_whitespace": True,
+}
+
+
+def _create_embedding_vectorizer(config: dict) -> SentenceEmbeddingVectorizer:
+    """
+    Build a SentenceEmbeddingVectorizer from ``preprocessing.embedding``.
+
+    Uses its own light cleaning profile
+    (``preprocessing.embedding.cleaning``, defaults to
+    ``EMBEDDING_CLEANING_DEFAULTS``) — the aggressive TF-IDF cleaning and
+    lemmatization would destroy information the encoder relies on.
+    """
+    emb_cfg = config.get("preprocessing", {}).get("embedding", {}) or {}
+    cleaning = {
+        **EMBEDDING_CLEANING_DEFAULTS, **(emb_cfg.get("cleaning") or {})
+    }
+    preprocessor = build_text_preprocessor(
+        {
+            "preprocessing": {
+                "cleaning": cleaning,
+                "nlp": {"lemmatize": False, "remove_stopwords": False},
+            }
+        },
+        lowercase=False,  # casing is controlled by cleaning.lowercase
+    )
+    params = {
+        "model_name": emb_cfg.get("model_name", DEFAULT_EMBEDDING_MODEL),
+        "batch_size": int(emb_cfg.get("batch_size", 64)),
+        "normalize_embeddings": bool(emb_cfg.get("normalize", True)),
+        "device": emb_cfg.get("device", "cpu"),
+    }
+    logger.info(
+        f"Initializing SentenceEmbeddingVectorizer with params: {params}, "
+        f"cleaning: {cleaning}"
+    )
+    return SentenceEmbeddingVectorizer(**params, preprocessor=preprocessor)
+
+
+def create_vectorizer(
+    config: dict,
+) -> TfidfVectorizer | CountVectorizer | SentenceEmbeddingVectorizer:
     """
     Initialize and return a vectorizer based on configuration.
 
@@ -262,7 +316,9 @@ def create_vectorizer(config: dict) -> TfidfVectorizer | CountVectorizer:
         config: Configuration dict with vectorizer settings
 
     Returns:
-        Configured TfidfVectorizer or CountVectorizer instance
+        Configured TfidfVectorizer, CountVectorizer or
+        SentenceEmbeddingVectorizer (type="sentence_embedding",
+        settings in ``preprocessing.embedding``)
 
     Raises:
         ValueError: If required vectorizer config keys are missing
@@ -286,12 +342,15 @@ def create_vectorizer(config: dict) -> TfidfVectorizer | CountVectorizer:
         f"ngram_range={vectorizer_cfg.get('ngram_range')}"
     )
 
+    vectorizer_type = str(vectorizer_cfg.get("type", "tfidf")).lower()
+    if vectorizer_type == "sentence_embedding":
+        return _create_embedding_vectorizer(config)
+
+    # Bag-of-words vectorizers need vocabulary settings
     required_keys = ["type", "max_features", "ngram_range"]
     missing = [k for k in required_keys if k not in vectorizer_cfg]
     if missing:
         raise ValueError(f"Missing required vectorizer config keys: {missing}")
-
-    vectorizer_type = vectorizer_cfg.get("type", "tfidf").lower()
     lowercase = vectorizer_cfg.get("lowercase", True)
 
     common_params = {

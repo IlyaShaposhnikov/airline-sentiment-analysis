@@ -108,18 +108,25 @@ def noisy_dataset(tmp_path: Path) -> tuple[Path, pd.DataFrame]:
     return config_path, df
 
 
+def _run_train(project_root: Path, config_path: Path, output_dir: Path,
+               **overrides) -> int:
+    """Call scripts/train.py main() with default CLI args + overrides."""
+    train = _load_train_module(project_root)
+    args = dict(
+        config=str(config_path), output_dir=str(output_dir),
+        binary_mode=False, no_plots=True, explain=False,
+        n_explain=5, use_shap=False, seed=None, vectorizer=None,
+    )
+    args.update(overrides)
+    return train.main(argparse.Namespace(**args))
+
+
 @pytest.fixture
 def trained_artifacts(project_root, noisy_dataset, tmp_path):
     """Run scripts/train.py main() once and return (output_dir, raw_df)."""
     config_path, df = noisy_dataset
     output_dir = tmp_path / "artifacts"
-    train = _load_train_module(project_root)
-    args = argparse.Namespace(
-        config=str(config_path), output_dir=str(output_dir),
-        binary_mode=False, no_plots=True, explain=False,
-        n_explain=5, use_shap=False, seed=None,
-    )
-    assert train.main(args) == 0
+    assert _run_train(project_root, config_path, output_dir) == 0
     return output_dir, df
 
 
@@ -172,3 +179,52 @@ class TestTrainScriptArtifacts:
             model, vectorizer, clean, return_proba=True
         )
         np.testing.assert_allclose(proba_raw, proba_clean)
+
+
+@pytest.mark.integration
+class TestTrainScriptWithSentenceEmbeddings:
+    """
+    --vectorizer sentence_embedding (fake encoder: no torch, no download).
+    Plots and --explain are enabled on purpose: word-level artifacts must be
+    skipped gracefully instead of crashing on a vocabulary-less vectorizer.
+    """
+
+    @pytest.fixture
+    def embedding_artifacts(
+        self, project_root, noisy_dataset, tmp_path, fake_encoder
+    ):
+        config_path, df = noisy_dataset
+        output_dir = tmp_path / "emb_artifacts"
+        exit_code = _run_train(
+            project_root, config_path, output_dir,
+            vectorizer="sentence_embedding", no_plots=False, explain=True,
+        )
+        return exit_code, output_dir
+
+    def test_training_succeeds(self, embedding_artifacts):
+        exit_code, output_dir = embedding_artifacts
+        assert exit_code == 0
+        assert (output_dir / "model_bundle.joblib").exists()
+        assert (output_dir / "metrics.json").exists()
+
+    def test_word_level_artifacts_skipped(self, embedding_artifacts):
+        _, output_dir = embedding_artifacts
+        assert (output_dir / "confusion_matrix.png").exists()
+        assert not list(output_dir.glob("feature_importance_*.png"))
+        assert not (output_dir / "explanations.json").exists()
+
+    def test_bundle_contains_embedding_vectorizer(self, embedding_artifacts):
+        from src.embeddings import SentenceEmbeddingVectorizer
+        from src.models import load_model
+
+        _, output_dir = embedding_artifacts
+        _, vectorizer, _, _ = load_model(output_dir / "model_bundle.joblib")
+        assert isinstance(vectorizer, SentenceEmbeddingVectorizer)
+
+    def test_override_recorded_in_config_backup(self, embedding_artifacts):
+        _, output_dir = embedding_artifacts
+        with open(output_dir / "config_used.yaml", encoding="utf-8") as f:
+            used = yaml.safe_load(f)
+        assert used["preprocessing"]["vectorizer"]["type"] == (
+            "sentence_embedding"
+        )

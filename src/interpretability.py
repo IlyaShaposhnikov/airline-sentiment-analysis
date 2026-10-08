@@ -29,6 +29,26 @@ except ImportError:
     shap = None  # type: ignore
 
 
+def supports_word_explanations(vectorizer) -> bool:
+    """
+    Whether word-level explanations are meaningful for this vectorizer.
+
+    Weight/SHAP explanations map model coefficients back to vocabulary
+    terms via ``get_feature_names_out()``. Dense sentence embeddings have no
+    vocabulary — their dimensions are not words — so callers must skip
+    word-level explanations and feature-importance plots for them.
+
+    Args:
+        vectorizer: Fitted vectorizer from the model bundle
+
+    Returns:
+        True if the vectorizer exposes a word vocabulary
+    """
+    return hasattr(vectorizer, "get_feature_names_out") or hasattr(
+        vectorizer, "get_feature_names"
+    )
+
+
 def get_top_features_by_weight(
     model: LogisticRegression,
     vectorizer: CountVectorizer | TfidfVectorizer,
@@ -318,6 +338,19 @@ def explain_prediction(
         - Binary: negative class weights inverted for intuitive interpretation
         - Graceful fallback: if SHAP fails, automatically uses weights
     """
+    if not supports_word_explanations(vectorizer):
+        logger.warning(
+            f"Word-level explanations are not supported for "
+            f"{type(vectorizer).__name__}"
+        )
+        return {
+            "error": "Explanations not supported for this vectorizer",
+            "method": "none",
+            "predicted_class": None,
+            "probabilities": {},
+            "top_contributors": [],
+        }
+
     if not text or not text.strip():
         logger.warning("explain_prediction called with empty text")
         return {

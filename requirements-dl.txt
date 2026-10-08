@@ -1,0 +1,11 @@
+# OPTIONAL DEEP-LEARNING DEPENDENCIES
+# Needed only for vectorizer.type = "sentence_embedding" (and the PyTorch MLP).
+# The baseline TF-IDF pipeline and the test suite do NOT require these.
+#
+# Install CPU-only torch first (~200 MB instead of multi-GB CUDA builds):
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+# then:
+#   pip install -r requirements-dl.txt
+
+torch>=2.2.0
+sentence-transformers>=3.0.0

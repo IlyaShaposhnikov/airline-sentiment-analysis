@@ -21,6 +21,7 @@ import warnings
 
 import matplotlib
 import pandas as pd
+from scipy.sparse import issparse
 from sklearn.exceptions import ConvergenceWarning
 
 # Use non-interactive backend for saving plots without display
@@ -40,6 +41,7 @@ from src.interpretability import (  # noqa: E402
     get_top_features_by_weight,
     plot_feature_importance,
     SHAP_AVAILABLE,
+    supports_word_explanations,
 )
 from src.metrics import (  # noqa: E402
     compute_comprehensive_metrics,
@@ -123,6 +125,18 @@ def parse_args() -> argparse.Namespace:
         "--use-shap",
         action="store_true",
         help="Use SHAP for explanations (requires shap package)",
+    )
+
+    # Vectorizer override: switch feature extraction without editing config
+    parser.add_argument(
+        "--vectorizer",
+        type=str,
+        choices=["tfidf", "count", "sentence_embedding"],
+        default=None,
+        help=(
+            "Override preprocessing.vectorizer.type from config "
+            "(sentence_embedding requires requirements-dl.txt)"
+        ),
     )
 
     # Seed override: useful for reproducibility experiments
@@ -212,6 +226,14 @@ def main(args: argparse.Namespace) -> int:
         cfg["model"]["training"]["random_state"] = args.seed
         logger.info(f"Overridden random_state to {args.seed}")
 
+    # CLI vectorizer override (getattr: main() is also called
+    # programmatically with Namespaces that predate this flag)
+    vectorizer_override = getattr(args, "vectorizer", None)
+    if vectorizer_override:
+        cfg.setdefault("preprocessing", {}).setdefault("vectorizer", {})
+        cfg["preprocessing"]["vectorizer"]["type"] = vectorizer_override
+        logger.info(f"Overridden vectorizer type to {vectorizer_override}")
+
     # Setup output directory
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -285,13 +307,17 @@ def main(args: argparse.Namespace) -> int:
     vectorizer = create_vectorizer(cfg)
     X_train = vectorizer.fit_transform(train_texts)
     X_test = vectorizer.transform(test_texts)
+    word_explanations = supports_word_explanations(vectorizer)
     logger.info(
         f"Vectorized: train {X_train.shape}, test {X_test.shape}, "
         f"vocabulary fitted on train only"
     )
 
     # Rows without any known feature usually mean over-aggressive cleaning
-    empty_train = int((X_train.getnnz(axis=1) == 0).sum())
+    # (only meaningful for sparse bag-of-words matrices)
+    empty_train = (
+        int((X_train.getnnz(axis=1) == 0).sum()) if issparse(X_train) else 0
+    )
     if empty_train:
         logger.warning(
             f"{empty_train}/{X_train.shape[0]} training texts have no "
@@ -368,9 +394,16 @@ def main(args: argparse.Namespace) -> int:
 
         # Feature importance per class:
         # shows which words drive predictions for each sentiment
+        # (not applicable to dense embeddings: dimensions are not words)
         plot_settings = interp_cfg.get("plot_settings", {})
+        word_plots = class_names if word_explanations else []
+        if not word_explanations:
+            logger.info(
+                "Skipping feature-importance plots: not supported for "
+                f"{type(vectorizer).__name__}"
+            )
 
-        for class_idx, class_name in enumerate(class_names):
+        for class_idx, class_name in enumerate(word_plots):
             feat_path = output_dir / f"feature_importance_{class_name}.png"
             plot_feature_importance(
                 model,
@@ -384,12 +417,17 @@ def main(args: argparse.Namespace) -> int:
                 class_names=class_names,
             )
 
-        logger.info(f"Saved {len(class_names) + 1} plots to {output_dir}")
+        logger.info(f"Saved {len(word_plots) + 1} plots to {output_dir}")
 
     # =========================================================================
     # 8. Interpretability: top features and prediction explanations
     # =========================================================================
-    if args.explain:
+    if args.explain and not word_explanations:
+        logger.warning(
+            "--explain ignored: word-level explanations are not supported "
+            f"for {type(vectorizer).__name__}"
+        )
+    elif args.explain:
         logger.info("Generating explanations...")
 
         # Top features by weight:

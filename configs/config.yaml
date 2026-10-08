@@ -11,7 +11,7 @@ data:
 # TEXT PREPROCESSING
 preprocessing:
   vectorizer:
-    type: "tfidf"  # or "count"
+    type: "tfidf"  # "tfidf" | "count" | "sentence_embedding" (CLI: --vectorizer)
     max_features: 2000
     ngram_range: [1, 2]
     lowercase: true
@@ -27,6 +27,22 @@ preprocessing:
   nlp:
     lemmatize: false  # Requires nltk
     remove_stopwords: false  # Stopwords may carry sentiment in tweets
+
+  # Used only when vectorizer.type == "sentence_embedding"
+  # Requires: pip install -r requirements-dl.txt (see file for CPU torch)
+  embedding:
+    model_name: "sentence-transformers/all-MiniLM-L6-v2"  # 384-dim, fast on CPU
+    batch_size: 64
+    normalize: true  # L2-normalize embeddings (recommended for linear models)
+    device: "cpu"    # or "cuda"
+    # Light cleaning: transformer tokenizers use casing, punctuation and emoji.
+    # The cleaning/nlp sections above apply to tfidf/count only.
+    cleaning:
+      lowercase: false
+      remove_urls: true
+      remove_mentions: true  # Parity with TF-IDF: airline handles are not sentiment
+      remove_special_chars: false
+      remove_extra_whitespace: true
 
 # MODEL CONFIGURATION
 model:
@@ -111,4 +127,4 @@ serving:
   dashboard:
     enabled: false
     title: "Airline Sentiment Predictor"
-    framework: "streamlit"  # or "gradio"
+    framework: "streamlit"  # or "gradio"
