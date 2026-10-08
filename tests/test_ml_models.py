@@ -535,6 +535,55 @@ class TestModelPersistence:
             assert mapping_inv == TARGET_MAPPING_INV
             mock_load.assert_called_once_with(bundle_path)
 
+    def test_load_model_warns_on_legacy_vectorizer(
+            self, tmp_path, mock_trained_model, caplog
+    ):
+        """
+        Bundles trained before cleaning was embedded into the vectorizer
+        skip cleaning at inference — loading one must warn loudly.
+        """
+        legacy_vectorizer = TfidfVectorizer()  # preprocessor=None
+        with patch("src.models.joblib.load") as mock_load:
+            mock_load.return_value = {
+                "model": mock_trained_model,
+                "vectorizer": legacy_vectorizer,
+                "target_mapping": TARGET_MAPPING,
+                "target_mapping_inv": TARGET_MAPPING_INV,
+            }
+            with caplog.at_level(logging.WARNING, logger="src.models"):
+                load_model(tmp_path / "legacy.joblib")
+
+        assert any(
+            "no embedded preprocessor" in r.message for r in caplog.records
+        )
+
+    def test_load_model_no_warning_with_embedded_preprocessor(
+            self, tmp_path, mock_trained_model, caplog
+    ):
+        """Current bundles (preprocessor set) load without the warning."""
+        from src.preprocessing import create_vectorizer
+
+        vectorizer = create_vectorizer({
+            "preprocessing": {
+                "vectorizer": {
+                    "type": "tfidf", "max_features": 10, "ngram_range": [1, 1]
+                },
+            }
+        })
+        with patch("src.models.joblib.load") as mock_load:
+            mock_load.return_value = {
+                "model": mock_trained_model,
+                "vectorizer": vectorizer,
+                "target_mapping": TARGET_MAPPING,
+                "target_mapping_inv": TARGET_MAPPING_INV,
+            }
+            with caplog.at_level(logging.WARNING, logger="src.models"):
+                load_model(tmp_path / "current.joblib")
+
+        assert not any(
+            "no embedded preprocessor" in r.message for r in caplog.records
+        )
+
     def test_save_model_creates_parent_dirs(
             self, tmp_path, mock_trained_model, mock_vectorizer
     ):

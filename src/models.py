@@ -475,6 +475,15 @@ def load_model(
     """
     bundle = joblib.load(model_path)
     logger.info(f"Model bundle loaded from {model_path}")
+
+    # Bundles trained before preprocessing was embedded into the vectorizer
+    # would silently skip text cleaning at inference (train/serve skew)
+    if getattr(bundle["vectorizer"], "preprocessor", "n/a") is None:
+        logger.warning(
+            "Loaded vectorizer has no embedded preprocessor: input texts will "
+            "NOT be cleaned at inference, unlike during training. "
+            "Retrain the model with scripts/train.py to fix this."
+        )
     return (
         bundle["model"],
         bundle["vectorizer"],

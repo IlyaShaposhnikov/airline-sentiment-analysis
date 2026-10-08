@@ -334,3 +334,95 @@ class TestLemmatizeText:
         assert "the" not in result
         assert "are" not in result
         assert "cat" in result
+
+
+class TestVectorizerEmbeddedPreprocessing:
+    """
+    The vectorizer must apply the training-time cleaning pipeline itself,
+    so raw texts at inference are processed exactly like training texts
+    (regression tests for train/serve skew).
+    """
+
+    @staticmethod
+    def _config(**cleaning) -> dict:
+        base_cleaning = {
+            "lowercase": True,
+            "remove_urls": True,
+            "remove_mentions": True,
+            "remove_special_chars": True,
+            "remove_extra_whitespace": True,
+        }
+        base_cleaning.update(cleaning)
+        return {
+            "preprocessing": {
+                "vectorizer": {
+                    "type": "tfidf",
+                    "max_features": 100,
+                    "ngram_range": [1, 1],
+                },
+                "cleaning": base_cleaning,
+                "nlp": {"lemmatize": False, "remove_stopwords": False},
+            }
+        }
+
+    @pytest.mark.parametrize("vec_type", ["tfidf", "count"])
+    def test_raw_text_is_cleaned_by_vectorizer(self, vec_type):
+        """Mentions and URLs removed in training must not leak at inference."""
+        config = self._config()
+        config["preprocessing"]["vectorizer"]["type"] = vec_type
+        vec = create_vectorizer(config)
+
+        analyzer = vec.build_analyzer()
+        tokens = analyzer("@united GREAT flight https://t.co/abc123")
+
+        assert tokens == ["great", "flight"]
+
+    def test_transform_raw_equals_transform_cleaned(self):
+        """transform(raw) must equal transform(preprocess(raw))."""
+        config = self._config()
+        vec = create_vectorizer(config)
+        vec.fit(["great flight", "awful delay", "united airlines gate"])
+
+        raw = "@United Great flight!!! https://t.co/xyz"
+        cleaned = preprocess_text(raw, config)
+
+        diff = vec.transform([raw]) - vec.transform([cleaned])
+        assert diff.nnz == 0
+
+    def test_mention_kept_when_cleaning_disabled(self):
+        """Embedded hook must follow config, not hardcode cleaning."""
+        vec = create_vectorizer(
+            self._config(remove_mentions=False, remove_special_chars=False)
+        )
+        assert "united" in vec.build_analyzer()("@united thanks")
+
+    def test_vectorizer_lowercase_honoured_with_preprocessor(self):
+        """
+        sklearn skips its own lowercasing when preprocessor is set,
+        so the hook must apply vectorizer.lowercase itself.
+        """
+        vec = create_vectorizer(self._config(lowercase=False))
+        assert vec.build_analyzer()("GREAT Flight") == ["great", "flight"]
+
+    def test_preprocessor_survives_joblib_roundtrip(self, tmp_path):
+        """Cleaning must travel inside the model bundle."""
+        import joblib
+
+        vec = create_vectorizer(self._config())
+        vec.fit(["great flight", "awful delay"])
+        path = tmp_path / "vec.joblib"
+        joblib.dump(vec, path)
+        loaded = joblib.load(path)
+
+        assert loaded.preprocessor is not None
+        assert loaded.build_analyzer()("@united great https://t.co/a") == [
+            "great"
+        ]
+
+    def test_config_mutation_does_not_affect_vectorizer(self):
+        """Captured cleaning config is a snapshot, not a live reference."""
+        config = self._config(remove_mentions=True)
+        vec = create_vectorizer(config)
+        config["preprocessing"]["cleaning"]["remove_mentions"] = False
+
+        assert "united" not in vec.build_analyzer()("@united great")

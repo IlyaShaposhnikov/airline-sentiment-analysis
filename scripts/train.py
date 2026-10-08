@@ -22,7 +22,6 @@ import warnings
 import matplotlib
 import pandas as pd
 from sklearn.exceptions import ConvergenceWarning
-from sklearn.model_selection import train_test_split
 
 # Use non-interactive backend for saving plots without display
 matplotlib.use("Agg")
@@ -31,7 +30,11 @@ matplotlib.use("Agg")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from src.data_loader import load_config, load_and_prepare_data  # noqa: E402
+from src.data_loader import (  # noqa: E402
+    load_config,
+    load_and_prepare_data,
+    split_train_test_indices,
+)
 from src.interpretability import (  # noqa: E402
     explain_prediction,
     get_top_features_by_weight,
@@ -49,7 +52,7 @@ from src.models import (  # noqa: E402
     save_model,
     train_model,
 )
-from src.preprocessing import create_vectorizer, preprocess_texts  # noqa: E402
+from src.preprocessing import create_vectorizer  # noqa: E402
 from src.utils.logging_config import setup_logger  # noqa: E402
 
 # Configure root logger
@@ -171,8 +174,8 @@ def main(args: argparse.Namespace) -> int:
     Pipeline stages:
         1. Load configuration
         2. Load and prepare data
-        3. Preprocess texts and vectorize
-        4. Train/test split (stratified)
+        3. Train/test split (stratified, by row position)
+        4. Fit vectorizer on train texts only, transform test
         5. Train model
         6. Evaluate model
         7. Generate visualizations and reports
@@ -249,53 +252,52 @@ def main(args: argparse.Namespace) -> int:
     )
 
     # =========================================================================
-    # 3. Preprocess texts and vectorize
+    # 3. Train/test split (stratified)
     # =========================================================================
-    logger.info("Preprocessing texts...")
-    vectorizer = create_vectorizer(cfg)
-    texts_processed = preprocess_texts(df["text"].tolist(), cfg)
-
-    # fit_transform learns vocabulary from training data only
-    # (prevents data leakage)
-    X = vectorizer.fit_transform(texts_processed)
-    y = df["target"].values
-    logger.info(f"Vectorized: {X.shape[0]} samples × {X.shape[1]} features")
-
-    # =========================================================================
-    # 4. Train/test split (stratified)
-    # =========================================================================
+    # Split row positions first: texts, labels and confidence weights are then
+    # selected with the same indices, so they stay aligned by construction.
     logger.info("Splitting data...")
 
     eval_cfg = cfg.get("evaluation", {})
-    split_cfg = eval_cfg.get("split", {})
     model_cfg = cfg.get("model", {})
     training_cfg = model_cfg.get("training", {})
-    stratify_enabled = split_cfg.get("stratify", True)
-    # Stratify preserves class distribution in train/test splits
-    # (critical for imbalanced data)
-    stratify_value = y if stratify_enabled else None
 
-    X_train, X_test, y_train, y_test, w_train, w_test = train_test_split(
-        X,
-        y,
-        df["sentiment_confidence"].values,
-        test_size=split_cfg.get("test_size", 0.25),
-        random_state=training_cfg.get("random_state", 42),
-        stratify=stratify_value,
-    )
-    logger.info(f"Split: train={X_train.shape[0]}, test={X_test.shape[0]}")
-
-    if X_test.shape[0] == 0:
-        logger.error(
-            "Test set is empty after split. "
-            f"Check test_size={split_cfg.get('test_size', 0.25)} "
-            f"and data size={len(X)}."
-        )
+    y = df["target"].to_numpy()
+    try:
+        train_idx, test_idx = split_train_test_indices(y, cfg)
+    except ValueError as e:
+        logger.error(f"{e}. Check evaluation.split.test_size in config.")
         return 1
 
-    # Extract original texts for test set to enable explanations
-    # and misclassified analysis
-    test_texts = df["text"].iloc[-X_test.shape[0]:].tolist()
+    texts = df["text"].tolist()
+    train_texts = [texts[i] for i in train_idx]
+    test_texts = [texts[i] for i in test_idx]
+    y_train, y_test = y[train_idx], y[test_idx]
+    w_train = df["sentiment_confidence"].to_numpy()[train_idx]
+    logger.info(f"Split: train={len(train_idx)}, test={len(test_idx)}")
+
+    # =========================================================================
+    # 4. Vectorize (fit on train only — no test-set leakage into vocab/IDF)
+    # =========================================================================
+    # Text cleaning is embedded in the vectorizer (preprocessor=), so raw
+    # texts go in here exactly as they will at inference time.
+    logger.info("Vectorizing texts...")
+    vectorizer = create_vectorizer(cfg)
+    X_train = vectorizer.fit_transform(train_texts)
+    X_test = vectorizer.transform(test_texts)
+    logger.info(
+        f"Vectorized: train {X_train.shape}, test {X_test.shape}, "
+        f"vocabulary fitted on train only"
+    )
+
+    # Rows without any known feature usually mean over-aggressive cleaning
+    empty_train = int((X_train.getnnz(axis=1) == 0).sum())
+    if empty_train:
+        logger.warning(
+            f"{empty_train}/{X_train.shape[0]} training texts have no "
+            "features after preprocessing/vectorization. "
+            "Consider adjusting cleaning parameters."
+        )
 
     # Confidence-based sample weights:
     # high-confidence annotations influence training more
@@ -512,7 +514,7 @@ def main(args: argparse.Namespace) -> int:
         f"Samples: {len(df)} "
         f"(train: {X_train.shape[0]}, test: {X_test.shape[0]})"
     )
-    print(f"Features: {X.shape[1]}")
+    print(f"Features: {X_train.shape[1]}")
     print(f"Accuracy: {metrics['accuracy']:.3f}")
     print(f"F1 (macro): {metrics['f1_macro']:.3f}")
     if "roc_auc" in metrics:

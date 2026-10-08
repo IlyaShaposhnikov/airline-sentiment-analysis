@@ -16,10 +16,12 @@ import pandas as pd
 import pytest
 import yaml
 
-from sklearn.model_selection import train_test_split
-
 from src.constants import TARGET_MAPPING, TARGET_MAPPING_INV
-from src.data_loader import load_config, load_and_prepare_data
+from src.data_loader import (
+    load_config,
+    load_and_prepare_data,
+    split_train_test_indices,
+)
 from src.preprocessing import preprocess_texts, create_vectorizer
 from src.models import (
     train_model, evaluate_model, prepare_sample_weights,
@@ -151,27 +153,28 @@ class TestFullPipelineIntegration:
         assert set(df["target"].unique()).issubset(TARGET_MAPPING.values())
 
         # =========================================================================
-        # 2. Preprocess & vectorize
+        # 2. Preprocessing sanity check
         # =========================================================================
         texts = preprocess_texts(df["text"].tolist(), config)
         assert len(texts) == len(df)
         assert all(isinstance(t, str) and len(t) > 0 for t in texts)
 
-        vectorizer = create_vectorizer(config)
-        X = vectorizer.fit_transform(texts)
-        y = df["target"].values
-        assert X.shape[0] == len(y)
+        # =========================================================================
+        # 3. Split by position, then fit vectorizer on train only
+        #    (same order as scripts/train.py; raw texts — cleaning is
+        #    embedded in the vectorizer)
+        # =========================================================================
+        y = df["target"].to_numpy()
+        train_idx, test_idx = split_train_test_indices(y, config)
+        raw_texts = df["text"].tolist()
 
-        # =========================================================================
-        # 3. Train/test split & training
-        # =========================================================================
-        split_cfg = config["evaluation"]["split"]
-        X_train, X_test, y_train, y_test, w_train, _ = train_test_split(
-            X, y, df["sentiment_confidence"].values,
-            test_size=split_cfg["test_size"],
-            random_state=config["model"]["training"]["random_state"],
-            stratify=y if split_cfg["stratify"] else None
-        )
+        vectorizer = create_vectorizer(config)
+        X_train = vectorizer.fit_transform([raw_texts[i] for i in train_idx])
+        X_test = vectorizer.transform([raw_texts[i] for i in test_idx])
+        y_train, y_test = y[train_idx], y[test_idx]
+        w_train = df["sentiment_confidence"].to_numpy()[train_idx]
+        assert X_train.shape[0] == len(y_train)
+        assert X_test.shape[0] == len(y_test)
 
         sample_weights = prepare_sample_weights(
             pd.DataFrame({"conf": w_train}), "conf", normalize=False
@@ -210,7 +213,9 @@ class TestFullPipelineIntegration:
         new_texts = [
             "great excellent flight",
             "terrible awful delay",
-            "okay experience"
+            # "okay experience" was ambiguous: "experience" only occurs in
+            # negative samples, so the old (vacuous) assert hid a ~50/50 call
+            "okay nothing special",
         ]
         preds, probas = predict_sentiment(
             loaded_model, loaded_vec, new_texts, return_proba=True
@@ -221,15 +226,8 @@ class TestFullPipelineIntegration:
         assert all(0.0 <= p <= 1.0 for row in probas for p in row)
 
         labels = decode_predictions(preds, mapping_inv)
-        assert (
-            labels[0] == "positive" or probas[0, mapping_inv["positive"]] > 0.5
-        )
-        assert (
-            labels[1] == "negative" or probas[0, mapping_inv["negative"]] > 0.5
-        )
-        assert (
-            labels[2] == "neutral" or probas[0, mapping_inv["neutral"]] > 0.5
-        )
+        # Synthetic data is perfectly separable: predictions must be exact
+        assert labels == ["positive", "negative", "neutral"]
 
         # =========================================================================
         # 7. Metrics Export

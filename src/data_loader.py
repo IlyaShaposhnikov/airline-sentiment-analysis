@@ -6,7 +6,9 @@ and target encoding. All paths are resolved relative to project root.
 """
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
+from sklearn.model_selection import train_test_split
 import yaml
 
 from .constants import TARGET_MAPPING
@@ -181,6 +183,49 @@ def load_and_prepare_data(
     df_filtered["target"] = df_filtered["target"].astype(int)
     logger.info(f"Final dataset shape: {df_filtered.shape[0]} rows")
     return df_filtered
+
+
+def split_train_test_indices(
+    y: np.ndarray,
+    config: dict,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Split row positions into train/test sets according to config.
+
+    Splitting positions (not feature matrices) keeps every per-row artifact
+    — raw texts, confidence weights, labels — aligned by construction, and
+    lets the vectorizer be fitted on the training rows only.
+
+    Args:
+        y: Encoded target array (used for stratification)
+        config: Config with ``evaluation.split`` and
+            ``model.training.random_state``
+
+    Returns:
+        Tuple of (train_idx, test_idx) — positional indices for ``.iloc``
+
+    Raises:
+        ValueError: If the resulting test set is empty
+    """
+    split_cfg = config.get("evaluation", {}).get("split", {})
+    training_cfg = config.get("model", {}).get("training", {})
+    test_size = split_cfg.get("test_size", 0.25)
+
+    y = np.asarray(y)
+    stratify = y if split_cfg.get("stratify", True) else None
+
+    train_idx, test_idx = train_test_split(
+        np.arange(len(y)),
+        test_size=test_size,
+        random_state=training_cfg.get("random_state", 42),
+        stratify=stratify,
+    )
+    if len(test_idx) == 0:
+        raise ValueError(
+            f"Test set is empty after split (test_size={test_size}, "
+            f"n_samples={len(y)})"
+        )
+    return train_idx, test_idx
 
 
 if __name__ == "__main__":

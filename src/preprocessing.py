@@ -5,6 +5,8 @@ Provides configurable text cleaning, NLTK-based lemmatization,
 and vectorizer factory functions. All functions are idempotent
 and safe for batch processing.
 """
+import copy
+from functools import partial
 import logging
 import re
 
@@ -205,6 +207,53 @@ def preprocess_text(
     return cleaned
 
 
+def _vectorizer_preprocess(
+    text: str,
+    config: dict,
+    lowercase: bool = True,
+) -> str:
+    """
+    Preprocessing hook embedded into the vectorizer (``preprocessor=``).
+
+    Runs the same cleaning/lemmatization pipeline that was applied during
+    training, so ``vectorizer.transform(raw_texts)`` behaves identically
+    at train and inference time (no train/serve skew).
+
+    Note:
+        When ``preprocessor`` is set, scikit-learn skips its own lowercasing,
+        so the vectorizer-level ``lowercase`` flag is honoured here.
+        Must stay a module-level function: the vectorizer (and this hook)
+        is pickled into the model bundle via joblib.
+    """
+    processed = preprocess_text(text, config)
+    return processed.lower() if lowercase else processed
+
+
+def build_text_preprocessor(config: dict, lowercase: bool = True) -> partial:
+    """
+    Build a picklable preprocessing callable for scikit-learn vectorizers.
+
+    Args:
+        config: Full project config; only the ``preprocessing.cleaning`` and
+            ``preprocessing.nlp`` sections are captured (deep-copied, so later
+            config mutations do not leak into a fitted vectorizer)
+        lowercase: Apply lowercasing after cleaning
+
+    Returns:
+        functools.partial wrapping ``_vectorizer_preprocess``
+    """
+    prep_cfg = config.get("preprocessing", {})
+    captured = {
+        "preprocessing": {
+            "cleaning": copy.deepcopy(prep_cfg.get("cleaning", {})),
+            "nlp": copy.deepcopy(prep_cfg.get("nlp", {})),
+        }
+    }
+    return partial(
+        _vectorizer_preprocess, config=captured, lowercase=lowercase
+    )
+
+
 def create_vectorizer(config: dict) -> TfidfVectorizer | CountVectorizer:
     """
     Initialize and return a vectorizer based on configuration.
@@ -220,6 +269,9 @@ def create_vectorizer(config: dict) -> TfidfVectorizer | CountVectorizer:
         or type is unknown
 
     Note:
+        Text cleaning (``preprocessing.cleaning`` / ``preprocessing.nlp``)
+        is embedded via ``preprocessor=``: pass RAW texts to
+        ``fit_transform``/``transform``, both in training and inference.
         TF-IDF uses sublinear_tf=True (1 + log(tf))
         to reduce impact of very frequent terms.
         dtype=np.float64/int64 ensures compatibility with sklearn metrics
@@ -240,11 +292,13 @@ def create_vectorizer(config: dict) -> TfidfVectorizer | CountVectorizer:
         raise ValueError(f"Missing required vectorizer config keys: {missing}")
 
     vectorizer_type = vectorizer_cfg.get("type", "tfidf").lower()
+    lowercase = vectorizer_cfg.get("lowercase", True)
 
     common_params = {
         "max_features": vectorizer_cfg.get("max_features", 2000),
         "ngram_range": tuple(vectorizer_cfg.get("ngram_range", [1, 2])),
-        "lowercase": vectorizer_cfg.get("lowercase", True),
+        "lowercase": lowercase,
+        "preprocessor": build_text_preprocessor(config, lowercase=lowercase),
         "stop_words": (
             "english"
             if nlp_cfg.get("remove_stopwords", False)
@@ -252,9 +306,14 @@ def create_vectorizer(config: dict) -> TfidfVectorizer | CountVectorizer:
         ),
     }
 
+    # Readable log line: the embedded preprocessor repr is noisy
+    log_params = {
+        **common_params, "preprocessor": "embedded cleaning pipeline"
+    }
+
     if vectorizer_type == "tfidf":
         logger.info(
-            f"Initializing TfidfVectorizer with params: {common_params}"
+            f"Initializing TfidfVectorizer with params: {log_params}"
         )
         return TfidfVectorizer(
             **common_params,
@@ -263,7 +322,7 @@ def create_vectorizer(config: dict) -> TfidfVectorizer | CountVectorizer:
         )
     elif vectorizer_type == "count":
         logger.info(
-            f"Initializing CountVectorizer with params: {common_params}"
+            f"Initializing CountVectorizer with params: {log_params}"
         )
         return CountVectorizer(**common_params, dtype=np.int64)
     else:
