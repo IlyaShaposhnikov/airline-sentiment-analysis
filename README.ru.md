@@ -24,7 +24,7 @@
 
 | Категория | Ключевые особенности |
 |-----------|---------------------|
-| **Данные и предобработка** | Фильтрация по порогу уверенности, настраиваемая очистка (URL, упоминания, пунктуация), опциональная лемматизация, TF-IDF/Count векторизация |
+| **Данные и предобработка** | Фильтрация по порогу уверенности, настраиваемая очистка (URL, упоминания, пунктуация), опциональная лемматизация, TF-IDF/Count векторизация; очистка встроена в векторизатор, поэтому при обучении и инференсе текст обрабатывается одинаково |
 | **Обучение и оценка** | Обучение с весами по уверенности, стратифицированное разделение, комплексные метрики (F1, ROC-AUC, матрица ошибок), авто-экспорт в JSON/CSV |
 | **Интерпретируемость** | Топ-слова с наибольшим вкладом по классам, объяснения для отдельных предсказаний, при отсутствии пакета SHAP используется резервный метод |
 | **API и сервис** | Асинхронно-безопасные эндпоинты FastAPI, валидация через Pydantic v2, потокобезопасный сервис модели, CORS, обработка таймаутов |
@@ -37,17 +37,21 @@
 
 | Метрика | Multiclass (3 класса) | Binary (positive/negative) |
 |---------|----------------------|--------------------------|
+| **Accuracy** | 0.840 | 0.931 |
+| **F1 (macro)** | 0.780 | 0.805 |
+| **ROC-AUC** | 0.935 (OvO, macro) | 0.964 |
 | **Матрица ошибок** | ![Multiclass CM](docs/images/multiclass/confusion_matrix.png) | ![Binary CM](docs/images/binary/confusion_matrix.png) |
 | **Positive признаки** | ![Positive Multi](docs/images/multiclass/feature_importance_positive.png) | ![Positive Binary](docs/images/binary/feature_importance_positive.png) |
 | **Negative признаки** | ![Negative Multi](docs/images/multiclass/feature_importance_negative.png) | ![Negative Binary](docs/images/binary/feature_importance_negative.png) |
 | **Neutral признаки** | ![Neutral Multi](docs/images/multiclass/feature_importance_neutral.png) | *N/A* |
 
 > 💡 **Примечания**:
+> - Метрики посчитаны на отложенной стратифицированной выборке (25%, `random_state=42`) из 10 768 твитов с уверенностью разметки ≥ 0.7; векторизатор обучается только на обучающей части
 > - Binary режим исключает нейтральный класс (target=2), фокусируясь исключительно на позитивных/негативных сигналах
 > - Важность признаков показывает топ-20 слов по весовому коэффициенту логистической регрессии
 > - Матрицы ошибок нормализованы (по строкам) для объективного сравнения классов
 
-## Стркутура проекта
+## Структура проекта
 
 ```
 airline-sentiment-analysis/
@@ -78,11 +82,13 @@ airline-sentiment-analysis/
 │   └── predict.py               # CLI-инференс и пакетный экспорт
 ├── tests/
 │   ├── conftest.py              # Общие фикстуры pytest, маркеры, глобальная конфигурация тестов
+│   ├── test_data_loader.py      # Юнит-тесты разбиения train/test (согласованность строк, стратификация)
 │   ├── test_preprocessing.py    # Юнит-тесты очистки текста, токенизации, векторизации
 │   ├── test_ml_models.py        # Юнит-тесты обучения, оценки, сохранения моделей
 │   ├── test_api_models.py       # Юнит-тесты схем Pydantic: валидация, сериализация, ограничения
 │   ├── test_api_services.py     # Юнит-тесты ModelService: асинхронность, потокобезопасность, обработка ошибок
-│   └── test_integration.py      # Сквозные тесты пайплайна: config → data → model → API
+│   ├── test_integration.py      # Сквозные тесты пайплайна: config → data → model → API
+│   └── test_train_pipeline.py   # Регрессионные тесты артефактов scripts/train.py (без утечки, согласованные отчеты)
 ├── pytest.ini                   # Конфигурация pytest: маркеры, фильтры, режим asyncio, опции по умолчанию
 ├── .github/workflows/test.yml   # CI-пайплайн
 ├── .gitignore                   # Шаблоны игнорирования для Git
@@ -143,7 +149,7 @@ data:
 
 preprocessing:
   vectorizer: { type: "tfidf", max_features: 2000, ngram_range: [1, 2] }
-  cleaning: { remove_urls: true, remove_mentions: false, remove_special_chars: true }
+  cleaning: { remove_urls: true, remove_mentions: true, remove_special_chars: true }
 
 model:
   training: { max_iter: 500, class_weight: "balanced", use_confidence_weights: true }
@@ -204,4 +210,4 @@ curl -X POST http://localhost:8000/predict/batch \
 
 Илья Шапошников | [E-mail](mailto:ilia.a.shaposhnikov@gmail.com) | [LinkedIn](https://linkedin.com/in/iliashaposhnikov)
 
-**[English Version / На английском](README.md)**
+**[English Version / На английском](README.md)**

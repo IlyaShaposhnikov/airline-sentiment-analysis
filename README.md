@@ -24,7 +24,7 @@ This project demonstrates a complete machine learning lifecycle: from raw data i
 
 | Category | Highlights |
 |----------|------------|
-| **Data & Preprocessing** | Confidence threshold filtering, configurable cleaning (URLs, mentions, punctuation), optional lemmatization, TF-IDF/Count vectorization |
+| **Data & Preprocessing** | Confidence threshold filtering, configurable cleaning (URLs, mentions, punctuation), optional lemmatization, TF-IDF/Count vectorization; cleaning is embedded in the vectorizer, so training and inference process text identically |
 | **Training & Evaluation** | Confidence-weighted learning, stratified splits, comprehensive metrics (F1, ROC-AUC, confusion matrix), auto-export to JSON/CSV |
 | **Interpretability** | Top contributing words per class, per-prediction explanations, SHAP fallback if package unavailable |
 | **API & Serving** | Async-safe FastAPI endpoints, Pydantic v2 validation, thread-safe model service, CORS, timeout handling |
@@ -37,12 +37,16 @@ This project demonstrates a complete machine learning lifecycle: from raw data i
 
 | Metric | Multiclass (3 classes) | Binary (positive/negative) |
 |--------|----------------------|--------------------------|
+| **Accuracy** | 0.840 | 0.931 |
+| **F1 (macro)** | 0.780 | 0.805 |
+| **ROC-AUC** | 0.935 (OvO, macro) | 0.964 |
 | **Confusion Matrix** | ![Multiclass CM](docs/images/multiclass/confusion_matrix.png) | ![Binary CM](docs/images/binary/confusion_matrix.png) |
 | **Positive Features** | ![Positive Multi](docs/images/multiclass/feature_importance_positive.png) | ![Positive Binary](docs/images/binary/feature_importance_positive.png) |
 | **Negative Features** | ![Negative Multi](docs/images/multiclass/feature_importance_negative.png) | ![Negative Binary](docs/images/binary/feature_importance_negative.png) |
 | **Neutral Features** | ![Neutral Multi](docs/images/multiclass/feature_importance_neutral.png) | *N/A* |
 
 > 💡 **Notes**:
+> - Held-out stratified test set (25%, `random_state=42`) from 10,768 tweets with annotator confidence ≥ 0.7; the vectorizer is fitted on the training split only
 > - Binary mode excludes neutral class (target=2), focusing on clear positive/negative signals
 > - Feature importance shows top 20 words by logistic regression coefficient weight
 > - Confusion matrices are normalized (row-wise) for fair class comparison
@@ -51,7 +55,7 @@ This project demonstrates a complete machine learning lifecycle: from raw data i
 
 ```
 airline-sentiment-analysis/
-├── configs/config.yaml
+├── configs/
 │   ├── config.yaml              # Centralized configuration (nested, validated)
 │   └── CONFIG_GUIDE.md          # Detailed reference for config parameters, validation rules, and env overrides
 ├── data/
@@ -78,11 +82,13 @@ airline-sentiment-analysis/
 │   └── predict.py               # CLI inference & batch export
 ├── tests/
 │   ├── conftest.py              # Shared pytest fixtures, markers, and global test configuration
+│   ├── test_data_loader.py      # Unit tests for the train/test split helper (alignment, stratification)
 │   ├── test_preprocessing.py    # Unit tests for text cleaning, tokenization, and vectorization
 │   ├── test_ml_models.py        # Unit tests for model training, evaluation, and persistence logic
 │   ├── test_api_models.py       # Unit tests for Pydantic schemas: validation, serialization, constraints
 │   ├── test_api_services.py     # Unit tests for ModelService: async handling, thread safety, error propagation
-│   └── test_integration.py      # End-to-end pipeline tests: config → data → model → API
+│   ├── test_integration.py      # End-to-end pipeline tests: config → data → model → API
+│   └── test_train_pipeline.py   # Regression tests for scripts/train.py artifacts (no leakage, aligned reports)
 ├── pytest.ini                   # Pytest configuration: markers, filters, asyncio mode, default options
 ├── .github/workflows/test.yml   # CI pipeline
 ├── .gitignore                   # Git ignore patterns
@@ -143,7 +149,7 @@ data:
 
 preprocessing:
   vectorizer: { type: "tfidf", max_features: 2000, ngram_range: [1, 2] }
-  cleaning: { remove_urls: true, remove_mentions: false, remove_special_chars: true }
+  cleaning: { remove_urls: true, remove_mentions: true, remove_special_chars: true }
 
 model:
   training: { max_iter: 500, class_weight: "balanced", use_confidence_weights: true }
@@ -202,4 +208,4 @@ curl -X POST http://localhost:8000/predict/batch \
 
 Ilya Shaposhnikov | [E-mail](mailto:ilia.a.shaposhnikov@gmail.com) | [LinkedIn](https://linkedin.com/in/iliashaposhnikov)
 
-**[Russian Version / На русском](README.ru.md)**
+**[Russian Version / На русском](README.ru.md)**
