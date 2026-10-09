@@ -22,7 +22,6 @@ import warnings
 import matplotlib
 import pandas as pd
 from scipy.sparse import issparse
-from sklearn.exceptions import ConvergenceWarning
 
 # Use non-interactive backend for saving plots without display
 matplotlib.use("Agg")
@@ -31,6 +30,9 @@ matplotlib.use("Agg")
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+# NOTE: import src (any submodule) before scikit-learn: on Windows the
+# package preloads torch to avoid an OpenMP runtime conflict
+# (see src/__init__.py)
 from src.data_loader import (  # noqa: E402
     load_config,
     load_and_prepare_data,
@@ -56,6 +58,7 @@ from src.models import (  # noqa: E402
 )
 from src.preprocessing import create_vectorizer  # noqa: E402
 from src.utils.logging_config import setup_logger  # noqa: E402
+from sklearn.exceptions import ConvergenceWarning  # noqa: E402
 
 # Configure root logger
 logger = setup_logger("train", level="INFO", log_file="artifacts/training.log")

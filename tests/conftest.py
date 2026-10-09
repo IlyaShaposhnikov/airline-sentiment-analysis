@@ -9,6 +9,10 @@ import pytest
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
+# Import the package before any test module imports scikit-learn: on Windows
+# it preloads torch to avoid an OpenMP runtime conflict (see src/__init__.py)
+import src  # noqa: E402,F401
+
 
 @pytest.fixture(scope="session")
 def project_root() -> Path:
