@@ -22,6 +22,7 @@ from sklearn.metrics import (
 )
 
 from .constants import TARGET_MAPPING, TARGET_MAPPING_INV
+from .torch_models import TorchMLPClassifier
 from .utils.logging_config import setup_logger
 
 logger = setup_logger(__name__)
@@ -81,15 +82,55 @@ def _validate_solver_penalty(
         )
 
 
-def create_model(config: dict) -> LogisticRegression:
+SUPPORTED_MODEL_TYPES = ("logistic_regression", "mlp")
+
+
+def _create_mlp(config: dict) -> TorchMLPClassifier:
     """
-    Initialize LogisticRegression with parameters from configuration.
+    Initialize TorchMLPClassifier from ``model.mlp`` (+ shared
+    ``model.training``: class_weight, random_state).
+
+    torch is not imported here — only when the model is fitted.
+    """
+    model_cfg = config.get("model", {})
+    training_cfg = model_cfg.get("training", {})
+    mlp_cfg = model_cfg.get("mlp", {}) or {}
+
+    class_weight = training_cfg.get("class_weight", "balanced")
+    if class_weight == "none":
+        class_weight = None
+
+    # float()/int(): PyYAML parses "1e-3" (no dot) as a string
+    params = {
+        "hidden_dims": tuple(int(h) for h in mlp_cfg.get("hidden_dims",
+                                                         [128])),
+        "dropout": float(mlp_cfg.get("dropout", 0.3)),
+        "learning_rate": float(mlp_cfg.get("learning_rate", 1e-3)),
+        "weight_decay": float(mlp_cfg.get("weight_decay", 1e-4)),
+        "batch_size": int(mlp_cfg.get("batch_size", 64)),
+        "max_epochs": int(mlp_cfg.get("max_epochs", 50)),
+        "patience": int(mlp_cfg.get("patience", 5)),
+        "validation_fraction": float(
+            mlp_cfg.get("validation_fraction", 0.1)
+        ),
+        "device": mlp_cfg.get("device", "cpu"),
+        "class_weight": class_weight,
+        "random_state": training_cfg.get("random_state", 42),
+    }
+    logger.info(f"Initializing TorchMLPClassifier with: {params}")
+    return TorchMLPClassifier(**params)
+
+
+def create_model(config: dict) -> LogisticRegression | TorchMLPClassifier:
+    """
+    Initialize the classifier selected by ``model.type``.
 
     Args:
         config: Dict with model/training/regularization settings
 
     Returns:
-        Configured LogisticRegression instance (unfitted)
+        Unfitted LogisticRegression (type "logistic_regression") or
+        TorchMLPClassifier (type "mlp", settings in ``model.mlp``)
 
     Raises:
         ValueError: If required config keys are missing
@@ -108,6 +149,8 @@ def create_model(config: dict) -> LogisticRegression:
 
     if "type" not in model_cfg:
         raise ValueError("Missing required config key: model.type")
+    if model_cfg["type"] == "mlp":
+        return _create_mlp(config)
     if "max_iter" not in training_cfg:
         raise ValueError(
             "Missing required config key: model.training.max_iter"
@@ -116,7 +159,7 @@ def create_model(config: dict) -> LogisticRegression:
     if model_cfg["type"] != "logistic_regression":
         raise ValueError(
             f"Unsupported model_type: {model_cfg['type']}. "
-            "Only 'logistic_regression' is supported in this version."
+            f"Supported: {', '.join(SUPPORTED_MODEL_TYPES)}."
         )
 
     # Handle class_weight: "balanced", "none" → None, or dict

@@ -95,10 +95,11 @@ class ModelService:
             for idx in sorted(self._model.classes_)
         ]
 
-        # Dense sentence embeddings have no word vocabulary → no word-level
-        # explanations; requests with explain=true get explanation=None
+        # Dense sentence embeddings (no vocabulary) and non-linear models
+        # (MLP) have no word-level explanations; requests with
+        # explain=true get explanation=None
         self._explanations_supported = supports_word_explanations(
-            self._vectorizer
+            self._vectorizer, self._model
         )
 
         # Heavy encoders (sentence embeddings) load lazily; warm up here so
@@ -181,6 +182,7 @@ class ModelService:
                 if explain and not self._explanations_supported:
                     logger.warning(
                         "Explanation requested but not supported for "
+                        f"{type(self._model).__name__} + "
                         f"{type(self._vectorizer).__name__}; "
                         "returning prediction without explanation"
                     )

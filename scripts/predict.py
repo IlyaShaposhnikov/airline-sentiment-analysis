@@ -216,7 +216,7 @@ def predict_single(
 
     # Add explanation if requested (local interpretability);
     # not available for dense sentence embeddings
-    if explain and supports_word_explanations(vectorizer):
+    if explain and supports_word_explanations(vectorizer, model):
         exp_result = explain_prediction(
             model,
             vectorizer,
@@ -397,10 +397,10 @@ def main(args: argparse.Namespace) -> int:
         texts = df["text"].dropna().astype(str).tolist()
         logger.info(f"Loaded {len(texts)} texts from {input_path}")
 
-    if args.explain and not supports_word_explanations(vectorizer):
+    if args.explain and not supports_word_explanations(vectorizer, model):
         logger.warning(
             "--explain ignored: word-level explanations are not supported "
-            f"for {type(vectorizer).__name__}"
+            f"for {type(model).__name__} + {type(vectorizer).__name__}"
         )
 
     # Run predictions (sequential, with optional explanations)

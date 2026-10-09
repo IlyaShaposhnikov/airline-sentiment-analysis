@@ -68,6 +68,7 @@ airline-sentiment-analysis/
 │   ├── preprocessing.py         # Очистка текста, лемматизация, векторизация
 │   ├── embeddings.py            # Эмбеддинги Sentence-Transformers как векторизатор в стиле sklearn (опционально)
 │   ├── models.py                # Обучение, оценка, сохранение моделей
+│   ├── torch_models.py          # MLP-классификатор на PyTorch с API в стиле sklearn (опционально)
 │   ├── metrics.py               # Вычисление метрик и отчетность
 │   ├── interpretability.py      # Объяснения через веса модели / SHAP
 │   ├── api/                     # Сервисный слой FastAPI
@@ -83,6 +84,8 @@ airline-sentiment-analysis/
 │   └── predict.py               # CLI-инференс и пакетный экспорт
 ├── tests/
 │   ├── conftest.py              # Общие фикстуры pytest, маркеры, глобальная конфигурация тестов
+│   ├── test_torch_models.py     # Обучение MLP, ранняя остановка, сохранение, пайплайн и API
+│   ├── test_runtime.py          # Обход конфликта OpenMP torch/scikit-learn на Windows и порядок импортов
 │   ├── test_embeddings.py       # Векторизатор эмбеддингов, пайплайн и API (фейковый энкодер, без скачивания)
 │   ├── test_data_loader.py      # Юнит-тесты разбиения train/test (согласованность строк, стратификация)
 │   ├── test_preprocessing.py    # Юнит-тесты очистки текста, токенизации, векторизации
@@ -136,7 +139,14 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu  # сборк
 pip install -r requirements-dl.txt
 python scripts/train.py --vectorizer sentence_embedding --output-dir artifacts/embedding_lr
 ```
-Модель скачивается один раз (~90 МБ) в кэш Hugging Face. Пословные объяснения и графики важности признаков для эмбеддингов недоступны (измерения не являются словами): API возвращает предсказания с `explanation: null`.
+Модель скачивается один раз (~90 МБ) в кэш Hugging Face.
+
+**Опционально: MLP на PyTorch вместо логистической регрессии** (работает с обоими типами признаков; настройки в `model.mlp`, ранняя остановка по валидационной части обучающей выборки):
+```bash
+python scripts/train.py --model mlp --output-dir artifacts/tfidf_mlp
+python scripts/train.py --model mlp --vectorizer sentence_embedding --output-dir artifacts/embedding_mlp
+```
+Пословные объяснения и графики важности признаков требуют TF-IDF-признаков **и** линейной модели; для эмбеддингов или MLP API возвращает предсказания с `explanation: null`. Чтобы запустить API с другой моделью, укажите путь к её бандлу: `MODEL_PATH=artifacts/embedding_mlp/model_bundle.joblib uvicorn src.api.main:app`.
 
 ### 4. Запуск REST API
 ```bash

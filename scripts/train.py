@@ -130,6 +130,18 @@ def parse_args() -> argparse.Namespace:
         help="Use SHAP for explanations (requires shap package)",
     )
 
+    # Model override: switch classifier without editing config
+    parser.add_argument(
+        "--model",
+        type=str,
+        choices=["logistic_regression", "mlp"],
+        default=None,
+        help=(
+            "Override model.type from config "
+            "(mlp requires PyTorch, see requirements-dl.txt)"
+        ),
+    )
+
     # Vectorizer override: switch feature extraction without editing config
     parser.add_argument(
         "--vectorizer",
@@ -229,8 +241,13 @@ def main(args: argparse.Namespace) -> int:
         cfg["model"]["training"]["random_state"] = args.seed
         logger.info(f"Overridden random_state to {args.seed}")
 
-    # CLI vectorizer override (getattr: main() is also called
-    # programmatically with Namespaces that predate this flag)
+    # CLI model/vectorizer overrides (getattr: main() is also called
+    # programmatically with Namespaces that predate these flags)
+    model_override = getattr(args, "model", None)
+    if model_override:
+        cfg.setdefault("model", {})["type"] = model_override
+        logger.info(f"Overridden model type to {model_override}")
+
     vectorizer_override = getattr(args, "vectorizer", None)
     if vectorizer_override:
         cfg.setdefault("preprocessing", {}).setdefault("vectorizer", {})
@@ -310,7 +327,6 @@ def main(args: argparse.Namespace) -> int:
     vectorizer = create_vectorizer(cfg)
     X_train = vectorizer.fit_transform(train_texts)
     X_test = vectorizer.transform(test_texts)
-    word_explanations = supports_word_explanations(vectorizer)
     logger.info(
         f"Vectorized: train {X_train.shape}, test {X_test.shape}, "
         f"vocabulary fitted on train only"
@@ -342,7 +358,10 @@ def main(args: argparse.Namespace) -> int:
     # =========================================================================
     logger.info("Training model...")
     model = train_model(X_train, y_train, cfg, sample_weights=sample_weights)
-    logger.info("Model trained")
+    logger.info(f"Model trained: {type(model).__name__}")
+
+    # Word-level explanations need a vocabulary AND a linear model
+    word_explanations = supports_word_explanations(vectorizer, model)
 
     # =========================================================================
     # 6. Evaluate model
@@ -403,7 +422,7 @@ def main(args: argparse.Namespace) -> int:
         if not word_explanations:
             logger.info(
                 "Skipping feature-importance plots: not supported for "
-                f"{type(vectorizer).__name__}"
+                f"{type(model).__name__} + {type(vectorizer).__name__}"
             )
 
         for class_idx, class_name in enumerate(word_plots):
@@ -428,7 +447,7 @@ def main(args: argparse.Namespace) -> int:
     if args.explain and not word_explanations:
         logger.warning(
             "--explain ignored: word-level explanations are not supported "
-            f"for {type(vectorizer).__name__}"
+            f"for {type(model).__name__} + {type(vectorizer).__name__}"
         )
     elif args.explain:
         logger.info("Generating explanations...")
@@ -489,6 +508,20 @@ def main(args: argparse.Namespace) -> int:
     # 9. Export metrics and save model
     # =========================================================================
     logger.info("Saving artifacts...")
+
+    # Neural models: per-epoch train/validation loss (early-stopping trace)
+    history = getattr(model, "history_", None)
+    if history:
+        history_path = output_dir / "training_history.json"
+        with open(history_path, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "best_epoch": getattr(model, "best_epoch_", None),
+                    "epochs": history,
+                },
+                f, indent=2,
+            )
+        logger.info(f"Training history saved to {history_path}")
 
     # Export metrics in configured formats (JSON/CSV)
     export_formats = reporting_cfg.get("export_formats", ["json", "csv"])
@@ -551,6 +584,7 @@ def main(args: argparse.Namespace) -> int:
     print("TRAINING SUMMARY")
     print("=" * 60)
     print(f"Mode: {'Binary' if args.binary_mode else 'Multiclass'}")
+    print(f"Model: {type(model).__name__} + {type(vectorizer).__name__}")
     print(
         f"Samples: {len(df)} "
         f"(train: {X_train.shape[0]}, test: {X_test.shape[0]})"

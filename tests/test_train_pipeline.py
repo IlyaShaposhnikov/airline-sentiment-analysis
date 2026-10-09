@@ -12,6 +12,7 @@ Does not import the API layer, so it runs without FastAPI installed.
 
 import argparse
 import importlib.util
+import json
 from pathlib import Path
 
 import numpy as np
@@ -116,6 +117,7 @@ def _run_train(project_root: Path, config_path: Path, output_dir: Path,
         config=str(config_path), output_dir=str(output_dir),
         binary_mode=False, no_plots=True, explain=False,
         n_explain=5, use_shap=False, seed=None, vectorizer=None,
+        model=None,
     )
     args.update(overrides)
     return train.main(argparse.Namespace(**args))
@@ -228,3 +230,41 @@ class TestTrainScriptWithSentenceEmbeddings:
         assert used["preprocessing"]["vectorizer"]["type"] == (
             "sentence_embedding"
         )
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    importlib.util.find_spec("torch") is None,
+    reason="PyTorch not installed (pip install -r requirements-dl.txt)",
+)
+@pytest.mark.parametrize("vectorizer", [None, "sentence_embedding"])
+def test_train_script_with_mlp(
+    project_root, noisy_dataset, tmp_path, fake_encoder, vectorizer
+):
+    """
+    --model mlp on TF-IDF (default) and on sentence embeddings (fake
+    encoder): both deep-learning cells of the comparison grid train, skip
+    word-level artifacts and save the early-stopping history.
+    """
+    from src.models import load_model
+    from src.torch_models import TorchMLPClassifier
+
+    config_path, df = noisy_dataset
+    output_dir = tmp_path / "mlp_artifacts"
+    exit_code = _run_train(
+        project_root, config_path, output_dir,
+        model="mlp", vectorizer=vectorizer, no_plots=False, explain=True,
+    )
+    assert exit_code == 0
+
+    model, _, _, _ = load_model(output_dir / "model_bundle.joblib")
+    assert isinstance(model, TorchMLPClassifier)
+    assert (output_dir / "confusion_matrix.png").exists()
+    assert not list(output_dir.glob("feature_importance_*.png"))
+
+    with open(output_dir / "training_history.json", encoding="utf-8") as f:
+        history = json.load(f)
+    assert history["epochs"] and history["best_epoch"] >= 1
+
+    with open(output_dir / "config_used.yaml", encoding="utf-8") as f:
+        assert yaml.safe_load(f)["model"]["type"] == "mlp"

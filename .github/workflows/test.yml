@@ -52,6 +52,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # CPU-only PyTorch for the MLP tests (sentence-transformers is not
+      # needed: embedding tests use a fake encoder, no model download)
+      - name: Install PyTorch (CPU)
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+
       - name: Check for security vulnerabilities
         run: |
           pip install pip-audit
@@ -121,4 +127,4 @@ jobs:
           name: test-results-${{ matrix.python-version }}
           path: test-results.xml
           retention-days: 7
-        if: always()
+        if: always()

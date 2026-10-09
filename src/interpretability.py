@@ -29,24 +29,34 @@ except ImportError:
     shap = None  # type: ignore
 
 
-def supports_word_explanations(vectorizer) -> bool:
+def supports_word_explanations(vectorizer, model=None) -> bool:
     """
-    Whether word-level explanations are meaningful for this vectorizer.
+    Whether word-level explanations are meaningful for this model bundle.
 
-    Weight/SHAP explanations map model coefficients back to vocabulary
-    terms via ``get_feature_names_out()``. Dense sentence embeddings have no
-    vocabulary — their dimensions are not words — so callers must skip
-    word-level explanations and feature-importance plots for them.
+    Weight/SHAP explanations map linear model coefficients (``coef_``) back
+    to vocabulary terms via ``get_feature_names_out()``. They are not
+    available when:
+    - the vectorizer has no vocabulary (dense sentence embeddings: their
+      dimensions are not words), or
+    - the model is not linear in the features (e.g. an MLP declares
+      ``_word_explanations_supported = False``).
+    Callers must then skip word-level explanations and feature plots.
 
     Args:
         vectorizer: Fitted vectorizer from the model bundle
+        model: Fitted classifier (optional; only the vectorizer is checked
+            when omitted)
 
     Returns:
-        True if the vectorizer exposes a word vocabulary
+        True if word-level explanations can be computed
     """
-    return hasattr(vectorizer, "get_feature_names_out") or hasattr(
+    has_vocabulary = hasattr(vectorizer, "get_feature_names_out") or hasattr(
         vectorizer, "get_feature_names"
     )
+    model_ok = model is None or getattr(
+        model, "_word_explanations_supported", True
+    )
+    return bool(has_vocabulary and model_ok)
 
 
 def get_top_features_by_weight(
@@ -338,13 +348,13 @@ def explain_prediction(
         - Binary: negative class weights inverted for intuitive interpretation
         - Graceful fallback: if SHAP fails, automatically uses weights
     """
-    if not supports_word_explanations(vectorizer):
+    if not supports_word_explanations(vectorizer, model):
         logger.warning(
-            f"Word-level explanations are not supported for "
-            f"{type(vectorizer).__name__}"
+            "Word-level explanations are not supported for "
+            f"{type(model).__name__} + {type(vectorizer).__name__}"
         )
         return {
-            "error": "Explanations not supported for this vectorizer",
+            "error": "Explanations not supported for this model",
             "method": "none",
             "predicted_class": None,
             "probabilities": {},

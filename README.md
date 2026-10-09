@@ -68,6 +68,7 @@ airline-sentiment-analysis/
 │   ├── preprocessing.py         # Text cleaning, lemmatization, vectorization
 │   ├── embeddings.py            # Sentence-Transformers embeddings as a sklearn-style vectorizer (optional)
 │   ├── models.py                # Training, evaluation, persistence
+│   ├── torch_models.py          # PyTorch MLP classifier with a sklearn API (optional)
 │   ├── metrics.py               # Metrics computation & reporting
 │   ├── interpretability.py      # Weight/SHAP explanations
 │   ├── api/                     # FastAPI service layer
@@ -83,6 +84,8 @@ airline-sentiment-analysis/
 │   └── predict.py               # CLI inference & batch export
 ├── tests/
 │   ├── conftest.py              # Shared pytest fixtures, markers, and global test configuration
+│   ├── test_torch_models.py     # MLP training, early stopping, persistence, pipeline & API
+│   ├── test_runtime.py          # Windows torch/scikit-learn OpenMP workaround and import order
 │   ├── test_embeddings.py       # Embedding vectorizer, pipeline & API path (fake encoder, no download)
 │   ├── test_data_loader.py      # Unit tests for the train/test split helper (alignment, stratification)
 │   ├── test_preprocessing.py    # Unit tests for text cleaning, tokenization, and vectorization
@@ -136,7 +139,14 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu  # CPU-only b
 pip install -r requirements-dl.txt
 python scripts/train.py --vectorizer sentence_embedding --output-dir artifacts/embedding_lr
 ```
-The model is downloaded once (~90 MB) into the Hugging Face cache. Word-level explanations and feature-importance plots are not available for embeddings (dimensions are not words): the API returns predictions with `explanation: null`.
+The model is downloaded once (~90 MB) into the Hugging Face cache.
+
+**Optional: PyTorch MLP instead of logistic regression** (works with either feature type; settings in `model.mlp`, early stopping on a validation slice of the training split):
+```bash
+python scripts/train.py --model mlp --output-dir artifacts/tfidf_mlp
+python scripts/train.py --model mlp --vectorizer sentence_embedding --output-dir artifacts/embedding_mlp
+```
+Word-level explanations and feature-importance plots require TF-IDF features **and** a linear model; for embeddings or the MLP the API returns predictions with `explanation: null`. To serve another model, point the API to its bundle: `MODEL_PATH=artifacts/embedding_mlp/model_bundle.joblib uvicorn src.api.main:app`.
 
 ### 4. Run REST API
 ```bash
