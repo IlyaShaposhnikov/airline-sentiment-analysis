@@ -5,6 +5,8 @@ Provides weight-based feature attribution for LogisticRegression,
 optional SHAP integration for advanced explanations, and visualization
 utilities. All functions gracefully degrade if SHAP is unavailable.
 """
+import importlib
+import importlib.util
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -16,17 +18,40 @@ from .utils.logging_config import setup_logger
 
 logger = setup_logger(__name__)
 
-# Optional dependency pattern with graceful fallback
-try:
-    import shap
-    SHAP_AVAILABLE = True
-    logger.debug("SHAP library available - enabling advanced explanations")
-except ImportError:
-    SHAP_AVAILABLE = False
-    logger.debug(
-        "SHAP library not available - using weight-based explanations only"
-    )
-    shap = None  # type: ignore
+# Optional dependency, imported LAZILY: shap pulls in numba/llvmlite (slow
+# import, heavy native libraries). Only SHAP explanations need it, so regular
+# training runs, the CLI and the API never load it.
+# SHAP_AVAILABLE only checks that the package is installed (no import).
+
+
+def _shap_installed() -> bool:
+    try:
+        return importlib.util.find_spec("shap") is not None
+    except (ImportError, ValueError):
+        # ValueError: sys.modules["shap"] is None (import explicitly blocked)
+        return False
+
+
+SHAP_AVAILABLE = _shap_installed()
+_shap_module = None
+
+
+def _get_shap():
+    """
+    Import shap on first use.
+
+    Returns:
+        The shap module, or None if it cannot be imported (e.g. a broken
+        native dependency) — callers then fall back to weight explanations.
+    """
+    global _shap_module
+    if _shap_module is None:
+        try:
+            _shap_module = importlib.import_module("shap")
+        except Exception as e:  # ImportError, OSError from llvmlite, ...
+            logger.warning(f"SHAP import failed, using weights instead: {e}")
+            return None
+    return _shap_module
 
 
 def supports_word_explanations(vectorizer, model=None) -> bool:
@@ -268,7 +293,8 @@ def _get_shap_explanation(
         Falls back to zero baseline if no background data provided
         (less accurate).
     """
-    if not SHAP_AVAILABLE:
+    shap = _get_shap() if SHAP_AVAILABLE else None
+    if shap is None:
         return None
 
     try:
@@ -517,7 +543,8 @@ def plot_shap_summary(
         Uses random subset of texts as background data for efficiency.
         For multiclass, plots specified class_idx or first class by default.
     """
-    if not SHAP_AVAILABLE:
+    shap = _get_shap() if SHAP_AVAILABLE else None
+    if shap is None:
         logger.warning("SHAP not available - skipping summary plot")
         return None
 

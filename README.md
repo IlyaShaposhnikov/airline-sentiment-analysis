@@ -85,6 +85,7 @@ airline-sentiment-analysis/
 ├── tests/
 │   ├── conftest.py              # Shared pytest fixtures, markers, and global test configuration
 │   ├── test_torch_models.py     # MLP training, early stopping, persistence, pipeline & API
+│   ├── test_shap_lazy_import.py # shap is imported only when SHAP explanations are requested
 │   ├── test_runtime.py          # Windows torch/scikit-learn OpenMP workaround and import order
 │   ├── test_embeddings.py       # Embedding vectorizer, pipeline & API path (fake encoder, no download)
 │   ├── test_data_loader.py      # Unit tests for the train/test split helper (alignment, stratification)
@@ -213,6 +214,14 @@ curl -X POST http://localhost:8000/predict \
 curl -X POST http://localhost:8000/predict/batch \
   -H "Content-Type: application/json" \
   -d '{"texts": ["Amazing!", "Terrible delay", "Meh"], "explain": false}'
+```
+
+## Troubleshooting
+
+**Windows: `Windows fatal exception: access violation` while encoding sentence embeddings.**
+A rare, non-deterministic native crash inside torch (observed with torch 2.14 CPU on Windows). The project already applies a mitigation (see `src/__init__.py`). If it still happens, rerun the command, or run with a single OpenMP thread (reliable, ~2x slower encoding):
+```bash
+OMP_NUM_THREADS=1 python scripts/train.py --vectorizer sentence_embedding
 ```
 
 ## Dependencies

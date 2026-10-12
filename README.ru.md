@@ -85,6 +85,7 @@ airline-sentiment-analysis/
 ├── tests/
 │   ├── conftest.py              # Общие фикстуры pytest, маркеры, глобальная конфигурация тестов
 │   ├── test_torch_models.py     # Обучение MLP, ранняя остановка, сохранение, пайплайн и API
+│   ├── test_shap_lazy_import.py # shap импортируется только при запросе SHAP-объяснений
 │   ├── test_runtime.py          # Обход конфликта OpenMP torch/scikit-learn на Windows и порядок импортов
 │   ├── test_embeddings.py       # Векторизатор эмбеддингов, пайплайн и API (фейковый энкодер, без скачивания)
 │   ├── test_data_loader.py      # Юнит-тесты разбиения train/test (согласованность строк, стратификация)
@@ -216,6 +217,14 @@ curl -X POST http://localhost:8000/predict/batch \
 ```
 
 ---
+
+## Решение проблем
+
+**Windows: `Windows fatal exception: access violation` при кодировании эмбеддингов.**
+Редкое недетерминированное падение в нативном коде torch (наблюдалось с torch 2.14 CPU на Windows). В проекте уже применено смягчение (см. `src/__init__.py`). Если падение всё же произошло — перезапустите команду или запустите с одним потоком OpenMP (надёжно, кодирование примерно в 2 раза медленнее):
+```bash
+OMP_NUM_THREADS=1 python scripts/train.py --vectorizer sentence_embedding
+```
 
 ## Зависимости
 

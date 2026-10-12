@@ -1,19 +1,26 @@
 """
 Airline sentiment analysis package.
 
-Windows OpenMP note
--------------------
-scikit-learn ships Microsoft's OpenMP runtime (``vcomp140.dll``), PyTorch
-ships Intel's (``libiomp5md.dll``). If scikit-learn's runtime is loaded
-first, multi-threaded torch inference (sentence embeddings) can crash the
-process with an access violation. Loading torch first avoids the conflict
-and keeps torch multi-threaded (``OMP_NUM_THREADS=1`` also avoids it, but
-makes encoding several times slower).
+Windows note: torch preload (mitigation, not a proven fix)
+----------------------------------------------------------
+On Windows, multi-threaded sentence-embedding encoding inside
+``scripts/train.py`` occasionally crashed the process with an access
+violation in a torch matmul (torch 2.14 CPU, transformers 5.x).
 
-The package import is the earliest common point of every entry point
-(``scripts/*``, ``uvicorn src.api.main:app``, the dashboard, pytest via
-conftest), so torch is preloaded here — only on Windows and only when it
-is installed. Entry points must import ``src`` before scikit-learn.
+What was measured on the author's machine:
+- before this preload: 2 crashes in 2 runs;
+- with it: about 1 crash in 15 runs;
+- a standalone encoder script never crashed (12/12), in every import order
+  of torch and scikit-learn — so the original hypothesis (scikit-learn's
+  and torch's OpenMP runtimes conflicting by load order) is NOT confirmed.
+
+Root cause unknown; the crash is rare and non-deterministic. Preloading
+torch before the rest of the stack is kept because it correlated with
+fewer crashes and costs nothing. If a run still crashes: rerun it, or set
+``OMP_NUM_THREADS=1`` (reliable, ~2x slower encoding).
+
+Only active on Windows and only when torch is installed; entry points
+import ``src`` before scikit-learn (guarded by tests/test_runtime.py).
 """
 import importlib
 import importlib.util
