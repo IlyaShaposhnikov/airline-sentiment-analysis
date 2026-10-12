@@ -15,7 +15,7 @@ End-to-end ML/NLP pipeline for predicting airline tweet sentiment. Features conf
 This project demonstrates a complete machine learning lifecycle: from raw data ingestion and preprocessing to model training, evaluation, interpretation, and production deployment. Built with modern Python practices, modular architecture, and rigorous testing.
 
 - **Dataset**: [Twitter US Airline Sentiment](https://www.kaggle.com/crowdflower/twitter-airline-sentiment) (confidence-filtered)
-- **Model**: Logistic Regression with TF-IDF vectorization & confidence-aware sample weighting
+- **Models**: TF-IDF or sentence embeddings (Sentence-Transformers) × Logistic Regression or a PyTorch MLP, all with confidence-aware sample weighting; a reproducible multi-seed comparison is included
 - **Interpretability**: Model weights + SHAP explanations (optional)
 - **Deployment**: FastAPI REST API + Streamlit interactive dashboard
 - **Quality**: >90% test coverage for core ML and service logic, GitHub Actions CI, security auditing
@@ -25,7 +25,7 @@ This project demonstrates a complete machine learning lifecycle: from raw data i
 | Category | Highlights |
 |----------|------------|
 | **Data & Preprocessing** | Confidence threshold filtering, configurable cleaning (URLs, mentions, punctuation), optional lemmatization, TF-IDF/Count vectorization; cleaning is embedded in the vectorizer, so training and inference process text identically |
-| **Training & Evaluation** | Confidence-weighted learning, stratified splits, comprehensive metrics (F1, ROC-AUC, confusion matrix), auto-export to JSON/CSV |
+| **Training & Evaluation** | Confidence-weighted learning, stratified splits, comprehensive metrics (F1, ROC-AUC, confusion matrix), auto-export to JSON/CSV, multi-seed comparison of feature extractors × classifiers |
 | **Interpretability** | Top contributing words per class, per-prediction explanations, SHAP fallback if package unavailable |
 | **API & Serving** | Async-safe FastAPI endpoints, Pydantic v2 validation, thread-safe model service, CORS, timeout handling |
 | **Dashboard** | Single/batch prediction UI, CSV/JSON export, real-time API health check, session state persistence |
@@ -33,20 +33,45 @@ This project demonstrates a complete machine learning lifecycle: from raw data i
 
 ## Model Performance & Results
 
-### Side-by-Side Comparison
+### Approach Comparison
 
-| Metric | Multiclass (3 classes) | Binary (positive/negative) |
+Two feature extractors × two classifiers, evaluated by `scripts/compare.py` on **5 stratified splits** (seeds 42–46). For each seed all four configurations share the same split and confidence weights.
+
+| Configuration | Accuracy | F1 (macro) | ROC-AUC | Latency, ms/text<br>(batch / single) |
+|---|---|---|---|---|
+| **3 classes** | | | | |
+| TF-IDF + LogReg | 0.843 ± 0.008 | 0.785 ± 0.011 | 0.938 ± 0.006 | 0.04 / 0.4 |
+| TF-IDF + MLP | 0.845 ± 0.007 | 0.783 ± 0.010 | 0.938 ± 0.005 | 0.05 / 1.0 |
+| Embeddings + LogReg | **0.854 ± 0.004** | **0.805 ± 0.007** | 0.955 ± 0.005 | 5.5 / 14.9 |
+| Embeddings + MLP | 0.853 ± 0.006 | 0.804 ± 0.008 | **0.956 ± 0.004** | 5.3 / 17.2 |
+| **Binary (positive / negative)** | | | | |
+| TF-IDF + LogReg | 0.934 ± 0.005 | 0.888 ± 0.008 | 0.969 ± 0.006 | 0.04 / 0.3 |
+| TF-IDF + MLP | 0.924 ± 0.004 | 0.875 ± 0.006 | 0.969 ± 0.003 | 0.07 / 0.8 |
+| Embeddings + LogReg | **0.949 ± 0.004** | **0.916 ± 0.006** | **0.986 ± 0.002** | 5.6 / 15.7 |
+| Embeddings + MLP | **0.949 ± 0.007** | **0.916 ± 0.010** | **0.986 ± 0.002** | 5.0 / 14.9 |
+
+*Mean ± std over seeds. TF-IDF: 2,000 uni/bigrams fitted on the training split; embeddings: `all-MiniLM-L6-v2` (384-d, frozen); MLP: one hidden layer of 128 with early stopping. Latency is end-to-end from raw text on a laptop CPU.*
+
+**Takeaways**
+
+- **The text representation matters more than the classifier.** Sentence embeddings improve every metric over TF-IDF with either classifier: +2.0 pp macro-F1 for 3 classes, +2.8 pp for binary, +0.017 ROC-AUC in both — two to three standard deviations, consistently across seeds.
+- **A non-linear classifier adds nothing here.** The MLP matches logistic regression on embeddings and is no better (binary: worse) on TF-IDF. With good features, a linear model is enough.
+- **Quality has a price.** Embeddings are ~40× slower per single request (≈15 ms vs 0.4 ms) and over 100× in batch, need torch plus a 90 MB model, and give up word-level explanations.
+- **Practical choice:** TF-IDF + LogReg stays the default — fast, lightweight and explainable. Embeddings + LogReg is the pick when accuracy matters more than latency and interpretability.
+
+Reproduce: `python scripts/compare.py` (and `--binary-mode`). Embeddings are encoded once and cached.
+
+### Baseline Model Details (TF-IDF + LogReg)
+
+| | Multiclass (3 classes) | Binary (positive/negative) |
 |--------|----------------------|--------------------------|
-| **Accuracy** | 0.840 | 0.931 |
-| **F1 (macro)** | 0.780 | 0.805 |
-| **ROC-AUC** | 0.935 (OvO, macro) | 0.964 |
 | **Confusion Matrix** | ![Multiclass CM](docs/images/multiclass/confusion_matrix.png) | ![Binary CM](docs/images/binary/confusion_matrix.png) |
 | **Positive Features** | ![Positive Multi](docs/images/multiclass/feature_importance_positive.png) | ![Positive Binary](docs/images/binary/feature_importance_positive.png) |
 | **Negative Features** | ![Negative Multi](docs/images/multiclass/feature_importance_negative.png) | ![Negative Binary](docs/images/binary/feature_importance_negative.png) |
 | **Neutral Features** | ![Neutral Multi](docs/images/multiclass/feature_importance_neutral.png) | *N/A* |
 
 > 💡 **Notes**:
-> - Held-out stratified test set (25%, `random_state=42`) from 10,768 tweets with annotator confidence ≥ 0.7; the vectorizer is fitted on the training split only
+> - Plots for the `random_state=42` split (25% held-out test set) of 10,768 tweets with annotator confidence ≥ 0.7; metrics for this model are in the TF-IDF + LogReg rows above
 > - Binary mode excludes neutral class (target=2), focusing on clear positive/negative signals
 > - Feature importance shows top 20 words by logistic regression coefficient weight
 > - Confusion matrices are normalized (row-wise) for fair class comparison
@@ -88,6 +113,7 @@ airline-sentiment-analysis/
 │   ├── test_torch_models.py     # MLP training, early stopping, persistence, pipeline & API
 │   ├── test_shap_lazy_import.py # shap is imported only when SHAP explanations are requested
 │   ├── test_compare.py          # Comparison script: outputs, embedding cache, binary mode
+│   ├── test_metrics.py          # Metric definitions (macro F1 in binary mode)
 │   ├── test_runtime.py          # Windows torch/scikit-learn OpenMP workaround and import order
 │   ├── test_embeddings.py       # Embedding vectorizer, pipeline & API path (fake encoder, no download)
 │   ├── test_data_loader.py      # Unit tests for the train/test split helper (alignment, stratification)

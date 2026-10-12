@@ -417,6 +417,7 @@ def compute_comprehensive_metrics(
 
     Note:
         Always computes: accuracy, F1-macro, precision-macro, recall-macro
+        (macro-averaged in binary mode too); binary adds *_positive
         Conditionally computes:
         ROC-AUC, confusion matrix, classification_report
         Auto-export uses config['evaluation']['reporting']['export_formats']
@@ -453,17 +454,32 @@ def compute_comprehensive_metrics(
     # Baseline accuracy is always included
     results["accuracy"] = np.mean(y_true == y_pred)
 
-    # Use 'binary' avg for binary, 'macro' for multiclass
-    average = "binary" if task_type == "binary" else "macro"
+    # *_macro are ALWAYS macro-averaged (mean over classes), so they are
+    # comparable across binary and multiclass runs and with
+    # scripts/compare.py. (Previously binary runs stored the positive-class
+    # F1 under "f1_macro".)
     results["f1_macro"] = f1_score(
-        y_true, y_pred, average=average, zero_division=0
+        y_true, y_pred, average="macro", zero_division=0
     )
     results["precision_macro"] = precision_score(
-        y_true, y_pred, average=average, zero_division=0
+        y_true, y_pred, average="macro", zero_division=0
     )
     results["recall_macro"] = recall_score(
-        y_true, y_pred, average=average, zero_division=0
+        y_true, y_pred, average="macro", zero_division=0
     )
+
+    # Binary: also report the minority/positive class (label 1) explicitly —
+    # the most informative number for the imbalanced positive/negative task
+    if task_type == "binary":
+        results["f1_positive"] = f1_score(
+            y_true, y_pred, average="binary", zero_division=0
+        )
+        results["precision_positive"] = precision_score(
+            y_true, y_pred, average="binary", zero_division=0
+        )
+        results["recall_positive"] = recall_score(
+            y_true, y_pred, average="binary", zero_division=0
+        )
 
     # Weighted F1 only meaningful for multiclass
     if task_type == "multiclass":
