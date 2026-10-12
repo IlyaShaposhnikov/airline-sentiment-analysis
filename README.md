@@ -112,6 +112,7 @@ airline-sentiment-analysis/
 │   ├── conftest.py              # Shared pytest fixtures, markers, and global test configuration
 │   ├── test_torch_models.py     # MLP training, early stopping, persistence, pipeline & API
 │   ├── test_shap_lazy_import.py # shap is imported only when SHAP explanations are requested
+│   ├── test_api_model_info.py   # Model metadata in ModelService and /health
 │   ├── test_compare.py          # Comparison script: outputs, embedding cache, binary mode
 │   ├── test_metrics.py          # Metric definitions (macro F1 in binary mode)
 │   ├── test_runtime.py          # Windows torch/scikit-learn OpenMP workaround and import order
@@ -242,7 +243,13 @@ curl -X POST http://localhost:8000/predict \
 curl -X POST http://localhost:8000/predict/batch \
   -H "Content-Type: application/json" \
   -d '{"texts": ["Amazing!", "Terrible delay", "Meh"], "explain": false}'
+
+# Health check: also reports which model is served and whether it can explain
+curl http://localhost:8000/health
+# {"status": "healthy", "model_loaded": true, "model_type": "LogisticRegression",
+#  "vectorizer_type": "TfidfVectorizer", "explanations_supported": true, ...}
 ```
+Models without word-level explanations (sentence embeddings, MLP) return `"explanation": null` even with `"explain": true`; the dashboard disables the explanation checkbox for them.
 
 ## Troubleshooting
 

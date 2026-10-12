@@ -112,6 +112,7 @@ airline-sentiment-analysis/
 │   ├── conftest.py              # Общие фикстуры pytest, маркеры, глобальная конфигурация тестов
 │   ├── test_torch_models.py     # Обучение MLP, ранняя остановка, сохранение, пайплайн и API
 │   ├── test_shap_lazy_import.py # shap импортируется только при запросе SHAP-объяснений
+│   ├── test_api_model_info.py   # Метаданные модели в ModelService и /health
 │   ├── test_compare.py          # Скрипт сравнения: выходные файлы, кэш эмбеддингов, бинарный режим
 │   ├── test_metrics.py          # Определения метрик (macro F1 в бинарном режиме)
 │   ├── test_runtime.py          # Обход конфликта OpenMP torch/scikit-learn на Windows и порядок импортов
@@ -242,7 +243,13 @@ curl -X POST http://localhost:8000/predict \
 curl -X POST http://localhost:8000/predict/batch \
   -H "Content-Type: application/json" \
   -d '{"texts": ["Amazing!", "Terrible delay", "Meh"], "explain": false}'
+
+# Проверка состояния: также показывает, какая модель загружена и умеет ли она объяснять
+curl http://localhost:8000/health
+# {"status": "healthy", "model_loaded": true, "model_type": "LogisticRegression",
+#  "vectorizer_type": "TfidfVectorizer", "explanations_supported": true, ...}
 ```
+Модели без пословных объяснений (эмбеддинги, MLP) возвращают `"explanation": null` даже при `"explain": true`; в панели управления чекбокс объяснений для них неактивен.
 
 ---
 
