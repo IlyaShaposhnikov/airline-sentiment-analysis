@@ -49,3 +49,12 @@ Thumbs.db
 # API/Dashboard runtime
 *.log
 .env
+
+# Testing & coverage
+.pytest_cache/
+htmlcov/
+coverage.xml
+test-results.xml
+
+# Streamlit secrets (config.toml is tracked)
+.streamlit/secrets.toml

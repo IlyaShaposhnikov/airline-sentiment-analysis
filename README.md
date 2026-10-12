@@ -18,7 +18,7 @@ This project demonstrates a complete machine learning lifecycle: from raw data i
 - **Models**: TF-IDF or sentence embeddings (Sentence-Transformers) × Logistic Regression or a PyTorch MLP, all with confidence-aware sample weighting; a reproducible multi-seed comparison is included
 - **Interpretability**: Model weights + SHAP explanations (optional)
 - **Deployment**: FastAPI REST API + Streamlit interactive dashboard
-- **Quality**: >90% test coverage for core ML and service logic, GitHub Actions CI, security auditing
+- **Quality**: 230+ unit and integration tests, GitHub Actions CI on Python 3.10–3.12, dependency auditing with `pip-audit`
 
 ## Features
 
@@ -81,13 +81,14 @@ Reproduce: `python scripts/compare.py` (and `--binary-mode`). Embeddings are enc
 ```
 airline-sentiment-analysis/
 ├── configs/
-│   ├── config.yaml              # Centralized configuration (nested, validated)
+│   ├── config.yaml              # Centralized configuration (nested YAML; key sections checked on load)
 │   └── CONFIG_GUIDE.md          # Detailed reference for config parameters, validation rules, and env overrides
 ├── data/
 │   ├── Tweets.csv               # Raw dataset (downloaded by user)
 │   └── DATA_GUIDE.md            # Dataset documentation
 ├── docs/images/                 # Model performance visualizations (multiclass/binary)
 ├── src/
+│   ├── __init__.py              # Windows-only torch preload (mitigation for a native crash, see Troubleshooting)
 │   ├── constants.py             # Project-wide constants: target mappings, paths, default values
 │   ├── data_loader.py           # Data ingestion & confidence filtering
 │   ├── preprocessing.py         # Text cleaning, lemmatization, vectorization
@@ -124,7 +125,8 @@ airline-sentiment-analysis/
 │   ├── test_api_services.py     # Unit tests for ModelService: async handling, thread safety, error propagation
 │   ├── test_integration.py      # End-to-end pipeline tests: config → data → model → API
 │   └── test_train_pipeline.py   # Regression tests for scripts/train.py artifacts (no leakage, aligned reports)
-├── pytest.ini                   # Pytest configuration: markers, filters, asyncio mode, default options
+├── pytest.ini                   # Pytest configuration: markers, warning filters, asyncio mode
+├── .streamlit/config.toml       # Streamlit settings (file watcher disabled to avoid torch import noise)
 ├── .github/workflows/test.yml   # CI pipeline
 ├── .gitignore                   # Git ignore patterns
 ├── README.md                    # Project documentation (English)
@@ -160,6 +162,10 @@ python scripts/train.py
 # --binary-mode            # Train only positive/negative
 # --no-plots               # Skip visualization generation
 # --explain --n-explain 5  # Generate prediction explanations
+# --use-shap               # Use SHAP instead of model weights (with --explain)
+# --model mlp              # PyTorch MLP instead of logistic regression
+# --vectorizer sentence_embedding
+# --seed 42 --output-dir artifacts/my_run --config configs/config.yaml
 ```
 Artifacts will be saved to `artifacts/` (model bundle, metrics, plots, logs).
 
@@ -199,16 +205,18 @@ data:
   confidence_threshold: 0.7  # Filter low-confidence annotations
 
 preprocessing:
-  vectorizer: { type: "tfidf", max_features: 2000, ngram_range: [1, 2] }
+  vectorizer: { type: "tfidf", max_features: 2000, ngram_range: [1, 2] }  # or "count", "sentence_embedding"
   cleaning: { remove_urls: true, remove_mentions: true, remove_special_chars: true }
+  embedding: { model_name: "sentence-transformers/all-MiniLM-L6-v2", batch_size: 64 }
 
 model:
+  type: "logistic_regression"  # or "mlp"
   training: { max_iter: 500, class_weight: "balanced", use_confidence_weights: true }
   regularization: { solver: "lbfgs", penalty: "l2", C: 1.0 }
+  mlp: { hidden_dims: [128], dropout: 0.3, max_epochs: 50, patience: 5 }
 
 serving:
-  api: { enabled: true, port: 8000, limits: { max_text_length: 1000, max_batch_size: 100 } }
-  dashboard: { enabled: false, title: "Airline Sentiment Predictor" }
+  api: { limits: { max_text_length: 1000, max_batch_size: 100 } }
 ```
 > 💡 The API and dashboard read `MODEL_PATH`, `CORS_ORIGINS` and `API_LOG_LEVEL` from the environment; training uses CLI flags (`--model`, `--vectorizer`, `--seed`, `--binary-mode`). See `configs/CONFIG_GUIDE.md`.
 
@@ -226,6 +234,7 @@ pytest tests/ -v -m "not integration"
 ### CI Pipeline
 Automatically runs on `push` and `pull_request`:
 - Tests on Python 3.10, 3.11, 3.12
+- CPU-only PyTorch is installed so the MLP tests run; sentence embeddings are tested with a fake encoder, so no model is downloaded
 - Fast mode for PRs, full mode for `main`/`develop`
 - `pip-audit` security scanning
 - Coverage uploaded to Codecov + GitHub artifacts
@@ -257,16 +266,17 @@ Models without word-level explanations (sentence embeddings, MLP) return `"expla
 A rare, non-deterministic native crash inside torch (observed with torch 2.14 CPU on Windows). The project already applies a mitigation (see `src/__init__.py`). If it still happens, rerun the command, or run with a single OpenMP thread (reliable, ~2x slower encoding):
 ```bash
 OMP_NUM_THREADS=1 python scripts/train.py --vectorizer sentence_embedding
+# PowerShell: $env:OMP_NUM_THREADS=1; python scripts/train.py --vectorizer sentence_embedding
 ```
 
 ## Dependencies
 
 | Category | Packages |
 |----------|----------|
-| Core | `numpy`, `pandas`, `scikit-learn`, `scipy` |
+| Core | `numpy`, `pandas`, `scipy`, `scikit-learn`, `joblib`, `pyyaml` |
 | NLP | `nltk`, `shap` (optional) |
 | API | `fastapi`, `uvicorn`, `pydantic>=2` |
-| UI | `streamlit`, `matplotlib`, `seaborn` |
+| UI | `streamlit`, `requests`, `matplotlib`, `seaborn` |
 | Deep learning (optional) | `torch`, `sentence-transformers` |
 | Testing | `pytest`, `pytest-cov`, `pytest-asyncio`, `pytest-timeout`, `pip-audit` |
 

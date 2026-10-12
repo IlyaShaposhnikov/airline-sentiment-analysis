@@ -18,7 +18,7 @@
 - **Модели**: TF-IDF или эмбеддинги предложений (Sentence-Transformers) × логистическая регрессия или MLP на PyTorch, везде со взвешиванием по уверенности аннотаций; включено воспроизводимое сравнение на нескольких seed
 - **Интерпретируемость**: Веса модели + объяснения через SHAP (SHapley Additive exPlanations) — метод, который показывает вклад каждого слова в предсказание тональности на основе значений Шепли (опционально)
 - **Развертывание**: FastAPI REST API + интерактивная панель на Streamlit
-- **Качество**: Покрытие тестами >90% для основного ML-кода и сервисной логики, CI через GitHub Actions, аудит безопасности
+- **Качество**: 230+ юнит- и интеграционных тестов, CI через GitHub Actions на Python 3.10–3.12, аудит зависимостей через `pip-audit`
 
 ## Возможности
 
@@ -81,13 +81,14 @@
 ```
 airline-sentiment-analysis/
 ├── configs/
-│   ├── config.yaml              # Централизованная конфигурация (вложенная, валидируемая)
+│   ├── config.yaml              # Централизованная конфигурация (вложенный YAML; ключевые секции проверяются при загрузке)
 │   └── CONFIG_GUIDE.md          # Подробный справочник по параметрам конфига, валидации и переменным окружения
 ├── data/
 │   ├── Tweets.csv               # Исходный датасет (загружается пользователем)
 │   └── DATA_GUIDE.md            # Документация датасета
 ├── docs/images/                 # Визуализации результатов модели (multiclass/binary)
 ├── src/
+│   ├── __init__.py              # Предзагрузка torch только на Windows (смягчение нативного падения, см. «Решение проблем»)
 │   ├── constants.py             # Глобальные константы: маппинг целевых меток, пути, значения по умолчанию
 │   ├── data_loader.py           # Загрузка данных и фильтрация по уверенности
 │   ├── preprocessing.py         # Очистка текста, лемматизация, векторизация
@@ -124,7 +125,8 @@ airline-sentiment-analysis/
 │   ├── test_api_services.py     # Юнит-тесты ModelService: асинхронность, потокобезопасность, обработка ошибок
 │   ├── test_integration.py      # Сквозные тесты пайплайна: config → data → model → API
 │   └── test_train_pipeline.py   # Регрессионные тесты артефактов scripts/train.py (без утечки, согласованные отчеты)
-├── pytest.ini                   # Конфигурация pytest: маркеры, фильтры, режим asyncio, опции по умолчанию
+├── pytest.ini                   # Конфигурация pytest: маркеры, фильтры предупреждений, режим asyncio
+├── .streamlit/config.toml       # Настройки Streamlit (отключён file watcher, чтобы не было шума от импорта torch)
 ├── .github/workflows/test.yml   # CI-пайплайн
 ├── .gitignore                   # Шаблоны игнорирования для Git
 ├── README.md                    # Документация проекта (английский)
@@ -160,6 +162,10 @@ python scripts/train.py
 # --binary-mode            # Обучать только на 2 классах: positive/negative
 # --no-plots               # Пропустить генерацию визуализаций
 # --explain --n-explain 5  # Сгенерировать объяснения предсказаний
+# --use-shap               # SHAP вместо весов модели (вместе с --explain)
+# --model mlp              # MLP на PyTorch вместо логистической регрессии
+# --vectorizer sentence_embedding
+# --seed 42 --output-dir artifacts/my_run --config configs/config.yaml
 ```
 Артефакты будут сохранены в `artifacts/` (пакет модели, метрики, графики, логи).
 
@@ -199,16 +205,18 @@ data:
   confidence_threshold: 0.7  # Фильтровать аннотации с низкой уверенностью
 
 preprocessing:
-  vectorizer: { type: "tfidf", max_features: 2000, ngram_range: [1, 2] }
+  vectorizer: { type: "tfidf", max_features: 2000, ngram_range: [1, 2] }  # или "count", "sentence_embedding"
   cleaning: { remove_urls: true, remove_mentions: true, remove_special_chars: true }
+  embedding: { model_name: "sentence-transformers/all-MiniLM-L6-v2", batch_size: 64 }
 
 model:
+  type: "logistic_regression"  # или "mlp"
   training: { max_iter: 500, class_weight: "balanced", use_confidence_weights: true }
   regularization: { solver: "lbfgs", penalty: "l2", C: 1.0 }
+  mlp: { hidden_dims: [128], dropout: 0.3, max_epochs: 50, patience: 5 }
 
 serving:
-  api: { enabled: true, port: 8000, limits: { max_text_length: 1000, max_batch_size: 100 } }
-  dashboard: { enabled: false, title: "Airline Sentiment Predictor" }
+  api: { limits: { max_text_length: 1000, max_batch_size: 100 } }
 ```
 > 💡 API и панель управления читают из окружения `MODEL_PATH`, `CORS_ORIGINS` и `API_LOG_LEVEL`; для обучения используются флаги CLI (`--model`, `--vectorizer`, `--seed`, `--binary-mode`). Подробнее — `configs/CONFIG_GUIDE.md`.
 
@@ -226,6 +234,7 @@ pytest tests/ -v -m "not integration"
 ### CI-пайплайн
 Автоматически запускается при `push` и `pull_request`:
 - Тесты на Python 3.10, 3.11, 3.12
+- Ставится CPU-сборка PyTorch, чтобы шли тесты MLP; эмбеддинги тестируются с фейковым энкодером, без скачивания модели
 - Быстрый режим для PR, полный режим для `main`/`develop`
 - Сканирование уязвимостей через `pip-audit`
 - Покрытие загружается в Codecov + артефакты GitHub
@@ -251,24 +260,23 @@ curl http://localhost:8000/health
 ```
 Модели без пословных объяснений (эмбеддинги, MLP) возвращают `"explanation": null` даже при `"explain": true`; в панели управления чекбокс объяснений для них неактивен.
 
----
-
 ## Решение проблем
 
 **Windows: `Windows fatal exception: access violation` при кодировании эмбеддингов.**
 Редкое недетерминированное падение в нативном коде torch (наблюдалось с torch 2.14 CPU на Windows). В проекте уже применено смягчение (см. `src/__init__.py`). Если падение всё же произошло — перезапустите команду или запустите с одним потоком OpenMP (надёжно, кодирование примерно в 2 раза медленнее):
 ```bash
 OMP_NUM_THREADS=1 python scripts/train.py --vectorizer sentence_embedding
+# PowerShell: $env:OMP_NUM_THREADS=1; python scripts/train.py --vectorizer sentence_embedding
 ```
 
 ## Зависимости
 
 | Категория | Пакеты |
 |-----------|--------|
-| Основные | `numpy`, `pandas`, `scikit-learn`, `scipy` |
+| Основные | `numpy`, `pandas`, `scipy`, `scikit-learn`, `joblib`, `pyyaml` |
 | NLP | `nltk`, `shap` (опционально) |
 | API | `fastapi`, `uvicorn`, `pydantic>=2` |
-| Интерфейс | `streamlit`, `matplotlib`, `seaborn` |
+| Интерфейс | `streamlit`, `requests`, `matplotlib`, `seaborn` |
 | Глубокое обучение (опционально) | `torch`, `sentence-transformers` |
 | Тестирование | `pytest`, `pytest-cov`, `pytest-asyncio`, `pytest-timeout`, `pip-audit` |
 
