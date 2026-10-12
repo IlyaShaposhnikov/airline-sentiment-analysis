@@ -81,11 +81,13 @@ airline-sentiment-analysis/
 │   └── dashboard.py             # Streamlit web UI
 ├── scripts/
 │   ├── train.py                 # CLI training pipeline
-│   └── predict.py               # CLI inference & batch export
+│   ├── predict.py               # CLI inference & batch export
+│   └── compare.py               # TF-IDF/embeddings x LogReg/MLP comparison over several seeds
 ├── tests/
 │   ├── conftest.py              # Shared pytest fixtures, markers, and global test configuration
 │   ├── test_torch_models.py     # MLP training, early stopping, persistence, pipeline & API
 │   ├── test_shap_lazy_import.py # shap is imported only when SHAP explanations are requested
+│   ├── test_compare.py          # Comparison script: outputs, embedding cache, binary mode
 │   ├── test_runtime.py          # Windows torch/scikit-learn OpenMP workaround and import order
 │   ├── test_embeddings.py       # Embedding vectorizer, pipeline & API path (fake encoder, no download)
 │   ├── test_data_loader.py      # Unit tests for the train/test split helper (alignment, stratification)

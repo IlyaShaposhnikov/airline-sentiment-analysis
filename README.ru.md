@@ -81,11 +81,13 @@ airline-sentiment-analysis/
 │   └── dashboard.py             # Веб-интерфейс на Streamlit
 ├── scripts/
 │   ├── train.py                 # CLI-пайплайн обучения
-│   └── predict.py               # CLI-инференс и пакетный экспорт
+│   ├── predict.py               # CLI-инференс и пакетный экспорт
+│   └── compare.py               # Сравнение TF-IDF/эмбеддинги x LogReg/MLP на нескольких seed
 ├── tests/
 │   ├── conftest.py              # Общие фикстуры pytest, маркеры, глобальная конфигурация тестов
 │   ├── test_torch_models.py     # Обучение MLP, ранняя остановка, сохранение, пайплайн и API
 │   ├── test_shap_lazy_import.py # shap импортируется только при запросе SHAP-объяснений
+│   ├── test_compare.py          # Скрипт сравнения: выходные файлы, кэш эмбеддингов, бинарный режим
 │   ├── test_runtime.py          # Обход конфликта OpenMP torch/scikit-learn на Windows и порядок импортов
 │   ├── test_embeddings.py       # Векторизатор эмбеддингов, пайплайн и API (фейковый энкодер, без скачивания)
 │   ├── test_data_loader.py      # Юнит-тесты разбиения train/test (согласованность строк, стратификация)
