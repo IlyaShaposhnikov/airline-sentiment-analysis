@@ -1,12 +1,15 @@
 """
 Model metadata exposed by the API: ModelService.model_info /
 explanations_supported and the extra /health fields.
+
+The /health handler is called directly (no TestClient): the HTTP test client
+depends on a transport package whose name differs between Starlette
+versions, and the HTTP layer adds nothing to what is tested here.
 """
 from unittest.mock import patch
 
 import numpy as np
 import pytest
-from fastapi.testclient import TestClient
 
 from src.api.models import HealthResponse
 from src.api.services import ModelService
@@ -91,30 +94,36 @@ class TestHealthModelFields:
             ("sentence_embedding", "SentenceEmbeddingVectorizer", False),
         ],
     )
-    def test_health_reports_loaded_model(
+    async def test_health_reports_loaded_model(
         self, fake_encoder, vectorizer_type, expected_vec, expected_explain
     ):
         import src.api.main as main
 
         service = _loaded_service(_bundle(vectorizer_type))
         with patch.object(main, "model_service", service):
-            # No context manager: startup (real model preload) is not run
-            response = TestClient(main.app).get("/health")
+            health = await main.health_check()
 
-        assert response.status_code == 200
-        body = response.json()
+        body = health.model_dump(mode="json")
         assert body["model_loaded"] is True
         assert body["model_type"] == "LogisticRegression"
         assert body["vectorizer_type"] == expected_vec
         assert body["explanations_supported"] is expected_explain
 
-    def test_health_without_model(self):
+    async def test_health_without_model(self):
         import src.api.main as main
 
         service = ModelService(model_path="unused.joblib")
         with patch.object(main, "model_service", service):
-            body = TestClient(main.app).get("/health").json()
+            body = (await main.health_check()).model_dump(mode="json")
 
         assert body["model_loaded"] is False
         assert body["model_type"] is None
         assert body["explanations_supported"] is None
+
+    def test_app_uses_lifespan_not_on_event(self):
+        """Startup/shutdown are wired via lifespan (on_event is deprecated)."""
+        import src.api.main as main
+
+        router = main.app.router
+        assert not getattr(router, "on_startup", [])
+        assert not getattr(router, "on_shutdown", [])

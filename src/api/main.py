@@ -16,6 +16,7 @@ Endpoints:
     GET  /redoc         # ReDoc (alternative docs)
 """
 
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request, status
@@ -109,9 +110,21 @@ def _handle_422(request: Request, exc: RequestValidationError) -> JSONResponse:
 # FastAPI application instance
 # ============================================================================
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Application lifespan: preload the model on startup, clean up on shutdown
+    (replaces the deprecated @app.on_event hooks).
+    """
+    await startup_event()
+    yield
+    await shutdown_event()
+
+
 # Exception handlers registered at app creation
 # for centralized error management
 app = FastAPI(
+    lifespan=lifespan,
     title=API_TITLE,
     description=API_DESCRIPTION,
     version=API_VERSION,
@@ -144,7 +157,6 @@ app.add_middleware(
 # ============================================================================
 
 
-@app.on_event("startup")
 async def startup_event() -> None:
     """
     Pre-load model on application startup if API is enabled.
@@ -176,7 +188,6 @@ async def startup_event() -> None:
         logger.error(f"Failed to preload or test model: {e}", exc_info=True)
 
 
-@app.on_event("shutdown")
 async def shutdown_event() -> None:
     """
     Cleanup on application shutdown.

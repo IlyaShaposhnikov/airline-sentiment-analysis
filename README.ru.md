@@ -210,7 +210,7 @@ serving:
   api: { enabled: true, port: 8000, limits: { max_text_length: 1000, max_batch_size: 100 } }
   dashboard: { enabled: false, title: "Airline Sentiment Predictor" }
 ```
-> 💡 Переменные окружения могут переопределять любое значение конфига (например, `MODEL_PATH`, `API_PORT`).
+> 💡 API и панель управления читают из окружения `MODEL_PATH`, `CORS_ORIGINS` и `API_LOG_LEVEL`; для обучения используются флаги CLI (`--model`, `--vectorizer`, `--seed`, `--binary-mode`). Подробнее — `configs/CONFIG_GUIDE.md`.
 
 ## Тестирование и CI
 

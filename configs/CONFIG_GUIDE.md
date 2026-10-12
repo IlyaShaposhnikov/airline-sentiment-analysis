@@ -2,7 +2,7 @@
 
 Comprehensive guide to configuring `configs/config.yaml` for the Airline Sentiment Analysis Pipeline.
 
-> **Tip**: All values can be overridden via environment variables (see [Environment Overrides](#-environment-overrides)).
+> **Tip**: Training scripts take `--config`, `--model`, `--vectorizer`, `--seed` and `--binary-mode` overrides; a few serving settings can be overridden via environment variables (see [Environment Overrides](#environment-overrides)).
 
 ## Configuration Structure
 
@@ -160,22 +160,19 @@ serving:
 
 ### Validation Behavior
 
-Configuration is validated at two stages:
+Configuration is checked where it is used, not up front:
 
-1. **At startup** (FastAPI/Streamlit):  
-   - Type checks (int vs str)  
-   - Range checks (e.g., `confidence_threshold ∈ [0.0, 1.0]`)  
-   - Required keys presence  
+- **Data loading** (`src/data_loader.py`): required `data.*` keys and the type of `data.confidence_columns`; missing dataset file → `FileNotFoundError`.
+- **Vectorizer** (`create_vectorizer`): `type`, `max_features`, `ngram_range` required for `tfidf`/`count`; unknown `type` → `ValueError`.
+- **Model** (`create_model`): `model.type` required; for logistic regression also `training.max_iter` and solver/penalty/`l1_ratio` compatibility; unknown `type` → `ValueError` listing supported types.
+- **Split**: an empty test set (too small `test_size`) → `ValueError`.
+- **Optional dependencies**: `sentence_embedding` / `mlp` without torch or sentence-transformers → `ImportError` with install instructions.
 
-2. **At runtime** (training/prediction):  
-   - Solver/penalty compatibility (scikit-learn constraints)  
-   - File path existence (`model.artifacts.path`)  
-   - Resource availability (SHAP package for `interpretability.shap.enabled: true`)
-
-> Invalid configurations raise `ValueError` with a descriptive message.  
 > Example: `ValueError: Invalid combination: solver=lbfgs + penalty=l1`
 
 ### Value Ranges
+
+Valid ranges for reference. They are not checked up front: out-of-range values fail inside scikit-learn or at the split.
 
 | Parameter | Range | Default |
 |-----------|-------|---------|
@@ -188,22 +185,20 @@ Configuration is validated at two stages:
 
 ## Environment Overrides
 
-Any configuration value can be overridden via environment variables:
+Only these serving settings read environment variables (`src/api/config.py`); they take precedence over `config.yaml` and apply to the API and the dashboard:
+
+| Variable | Overrides | Example |
+|----------|-----------|---------|
+| `MODEL_PATH` | `model.artifacts.path` — the bundle the API/dashboard serves | `artifacts/embedding_lr/model_bundle.joblib` |
+| `CORS_ORIGINS` | `serving.api.cors_origins` (JSON array) | `'["https://myapp.com"]'` |
+| `API_LOG_LEVEL` | `serving.api.log_level` | `WARNING` |
 
 ```bash
-# Examples:
-export MODEL_PATH="/mnt/models/v2/model_bundle.joblib"
-export API_PORT=8080
-export PREPROCESSING_VECTORIZER_MAX_FEATURES=5000
-export EVALUATION_SPLIT_TEST_SIZE=0.2
-
-# Run with overrides:
-python scripts/train.py  # Uses env vars on top of config.yaml
+MODEL_PATH=artifacts/embedding_lr/model_bundle.joblib uvicorn src.api.main:app --port 8000
 ```
 
-> **Naming Convention**:  
-> `SECTION_SUBSECTION_..._KEY` in uppercase, separated by underscores.  
-> Example: `preprocessing.vectorizer.max_features` → `PREPROCESSING_VECTORIZER_MAX_FEATURES`
+Host and port of the running server are set by `uvicorn --host/--port` (or `streamlit run --server.port`), not by `serving.api.host/port`.
+Training does not read environment variables: use a separate config file (`--config`) or the CLI flags `--model`, `--vectorizer`, `--seed`, `--binary-mode`, `--output-dir`.
 
 ## Configuration Examples
 

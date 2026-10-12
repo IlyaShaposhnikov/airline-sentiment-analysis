@@ -4,7 +4,7 @@
 
 Comprehensive reference for the Airline Sentiment Analysis REST API endpoints.
 
-> **Base URL**: `http://localhost:8000` (configurable via `serving.api.host` and `serving.api.port`)
+> **Base URL**: `http://localhost:8000` (set by `uvicorn --host/--port`)
 
 ## Interactive Documentation
 
@@ -371,13 +371,12 @@ docker run -p 8000:8000 -e MODEL_PATH=/models/model_bundle.joblib airline-sentim
 
 ### Production Environment Variables
 ```bash
-# .env.example
+# .env.example — the only variables the API reads (src/api/config.py)
 MODEL_PATH=/mnt/models/v1/model_bundle.joblib
-API_HOST=0.0.0.0
-API_PORT=8000
 API_LOG_LEVEL=WARNING
 CORS_ORIGINS=["https://myapp.com", "https://admin.myapp.com"]
 ```
+Host and port are passed to the server process: `uvicorn src.api.main:app --host 0.0.0.0 --port 8000`.
 
 ## FAQ
 

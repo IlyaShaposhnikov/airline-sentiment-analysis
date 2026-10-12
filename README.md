@@ -210,7 +210,7 @@ serving:
   api: { enabled: true, port: 8000, limits: { max_text_length: 1000, max_batch_size: 100 } }
   dashboard: { enabled: false, title: "Airline Sentiment Predictor" }
 ```
-> 💡 Environment variables can override any config value (e.g., `MODEL_PATH`, `API_PORT`).
+> 💡 The API and dashboard read `MODEL_PATH`, `CORS_ORIGINS` and `API_LOG_LEVEL` from the environment; training uses CLI flags (`--model`, `--vectorizer`, `--seed`, `--binary-mode`). See `configs/CONFIG_GUIDE.md`.
 
 ## Testing & CI
 
