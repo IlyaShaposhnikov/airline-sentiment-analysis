@@ -63,6 +63,28 @@ class ModelService:
         """Check if model is currently loaded in memory."""
         return self._loaded
 
+    @property
+    def explanations_supported(self) -> bool:
+        """
+        Whether word-level explanations are available for the loaded bundle
+        (TF-IDF/Count features + a linear model). Meaningful after load().
+        """
+        return self._explanations_supported
+
+    @property
+    def model_info(self) -> dict[str, str | None]:
+        """Class names of the loaded classifier and vectorizer (or None)."""
+        return {
+            "model_type": (
+                type(self._model).__name__ if self._model is not None
+                else None
+            ),
+            "vectorizer_type": (
+                type(self._vectorizer).__name__
+                if self._vectorizer is not None else None
+            ),
+        }
+
     def load(self) -> None:
         """
         Load model bundle from disk. Idempotent: safe to call multiple times.

@@ -237,7 +237,8 @@ async def health_check() -> HealthResponse:
 
     Returns:
         HealthResponse with service status, model load state,
-        and SHAP availability.
+        SHAP availability and, once loaded, model/vectorizer types and
+        whether word-level explanations are supported.
 
     Raises:
         HTTPException:
@@ -266,10 +267,18 @@ async def health_check() -> HealthResponse:
             logger.error(f"Health check: model operational test failed: {e}")
             model_operational = False
 
+    model_details = {}
+    if model_service.is_loaded:
+        model_details = {
+            **model_service.model_info,
+            "explanations_supported": model_service.explanations_supported,
+        }
+
     return HealthResponse(
         timestamp=datetime.now(timezone.utc),
         model_loaded=model_operational,
         shap_available=SHAP_AVAILABLE,
+        **model_details,
     )
 
 

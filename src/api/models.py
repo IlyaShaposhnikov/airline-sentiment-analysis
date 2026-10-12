@@ -163,7 +163,12 @@ class PredictionResponse(BaseAPIModel):
         description="UTC timestamp of prediction"
     )
     explanation: Explanation | None = Field(
-        None, description="Optional explanation with top contributing words"
+        None,
+        description=(
+            "Optional explanation with top contributing words; null when "
+            "not requested or not supported by the model "
+            "(see /health explanations_supported)"
+        ),
     )
 
     model_config = ConfigDict(
@@ -247,14 +252,33 @@ class HealthResponse(BaseAPIModel):
     )
     model_loaded: bool = Field(..., description="Whether model is loaded")
     shap_available: bool = Field(..., description="Whether SHAP is available")
+    # Filled only when a model is loaded
+    model_type: str | None = Field(
+        None, description="Classifier class, e.g. LogisticRegression"
+    )
+    vectorizer_type: str | None = Field(
+        None, description="Feature extractor class, e.g. TfidfVectorizer"
+    )
+    explanations_supported: bool | None = Field(
+        None,
+        description=(
+            "Whether explain=true returns word-level explanations "
+            "(requires TF-IDF/Count features and a linear model)"
+        ),
+    )
 
     model_config = ConfigDict(
+        # "model_type" starts with "model_", which Pydantic v2 reserves
+        protected_namespaces=(),
         json_schema_extra={
             "examples": [{
                 "status": "healthy",
                 "service": "airline-sentiment-api",
                 "model_loaded": True,
-                "shap_available": False
+                "shap_available": False,
+                "model_type": "LogisticRegression",
+                "vectorizer_type": "TfidfVectorizer",
+                "explanations_supported": True,
             }]
         }
     )

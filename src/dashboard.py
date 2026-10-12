@@ -87,24 +87,41 @@ def check_model_status() -> dict:
     Check if model is available and loaded (cached to avoid repeated checks).
 
     Returns:
-        Dict with model status: path, exists, loaded, shap_available, error
+        Dict with model status: path, exists, loaded, shap_available,
+        model_type, vectorizer_type, explanations_supported, error
     """
     status = {
         "model_path": MODEL_PATH,
         "exists": Path(MODEL_PATH).exists(),
         "loaded": False,
         "shap_available": SHAP_AVAILABLE,
+        "model_type": None,
+        "vectorizer_type": None,
+        "explanations_supported": False,
         "error": None,
     }
     try:
         model_service.load()
         status["loaded"] = True
+        status.update(model_service.model_info)
+        status["explanations_supported"] = (
+            model_service.explanations_supported
+        )
     except Exception as e:
         status["error"] = str(e)
     return status
 
 
 model_status = check_model_status()
+
+# Word-level explanations need TF-IDF features and a linear model;
+# embedding / MLP bundles predict normally but cannot explain
+EXPLAIN_OK = model_status["explanations_supported"]
+EXPLAIN_HELP = (
+    None if EXPLAIN_OK else
+    "Not available for this model: word-level explanations require "
+    "TF-IDF features and a linear model (logistic regression)."
+)
 
 # Visual status banner: success/warning/error based on model availability
 if model_status["loaded"]:
@@ -124,6 +141,13 @@ with st.sidebar:
     st.subheader("Model Info")
     st.code(f"Path: {model_status['model_path']}", language="text")
     st.metric("Loaded", "Yes" if model_status["loaded"] else "No")
+    if model_status["model_type"]:
+        st.caption(
+            f"Model: **{model_status['model_type']}** + "
+            f"**{model_status['vectorizer_type']}**"
+        )
+        if not EXPLAIN_OK:
+            st.caption("ℹ️ Explanations are not available for this model")
     shap_status = "Installed" if SHAP_AVAILABLE else "Not installed"
     st.metric("SHAP Library", shap_status)
     if SHAP_AVAILABLE:
@@ -169,12 +193,14 @@ with tab_single:
     with col1:
         explain_toggle = st.checkbox(
             "🔍 Show explanation",
+            disabled=not EXPLAIN_OK,
+            help=EXPLAIN_HELP,
             key="single_explain"
-        )
+        ) and EXPLAIN_OK
     with col2:
         use_shap_toggle = st.checkbox(
             "Use SHAP (if available)",
-            disabled=not SHAP_AVAILABLE,
+            disabled=not (SHAP_AVAILABLE and EXPLAIN_OK),
             key="single_shap"
         )
         if not SHAP_AVAILABLE and use_shap_toggle:
@@ -214,7 +240,7 @@ with tab_single:
                 # Run prediction via service layer (sync wrapper for Streamlit)
                 response = model_service.predict_single_sync(
                     text=text_input.strip(),
-                    explain=st.session_state.single_explain,
+                    explain=explain_toggle,
                     use_shap=st.session_state.single_shap and SHAP_AVAILABLE,
                     n_explain=st.session_state.single_n_explain,
                 )
@@ -352,12 +378,14 @@ with tab_batch:
                 with col1:
                     batch_explain = st.checkbox(
                         "🔍 Include explanations",
+                        disabled=not EXPLAIN_OK,
+                        help=EXPLAIN_HELP,
                         key="batch_explain"
-                    )
+                    ) and EXPLAIN_OK
                 with col2:
                     batch_use_shap = st.checkbox(
                         "Use SHAP (if available)",
-                        disabled=not SHAP_AVAILABLE,
+                        disabled=not (SHAP_AVAILABLE and EXPLAIN_OK),
                         key="batch_shap"
                     )
 
@@ -392,7 +420,7 @@ with tab_batch:
                                 try:
                                     response = model_service.predict_single_sync(  # noqa: E501
                                         text=text,
-                                        explain=st.session_state.batch_explain,
+                                        explain=batch_explain,
                                         use_shap=(
                                             st.session_state.batch_shap
                                             and SHAP_AVAILABLE
