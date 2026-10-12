@@ -1,0 +1,7 @@
+[server]
+# Streamlit's source watcher walks every imported module. With transformers
+# installed (embedding bundles) it touches lazily-imported submodules that
+# need optional packages (torchvision, ...) and floods the console with
+# harmless ModuleNotFoundError tracebacks. Disabling the watcher removes the
+# noise; restart `streamlit run` after editing the dashboard code.
+fileWatcherType = "none"

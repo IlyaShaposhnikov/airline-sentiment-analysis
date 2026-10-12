@@ -67,9 +67,20 @@ Service readiness probe for load balancers and monitoring systems.
   "service": "airline-sentiment-api",
   "timestamp": "2026-05-26T10:30:00.123456+00:00",
   "model_loaded": true,
-  "shap_available": false
+  "shap_available": false,
+  "model_type": "LogisticRegression",
+  "vectorizer_type": "TfidfVectorizer",
+  "explanations_supported": true
 }
 ```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `model_loaded` | boolean | Model bundle is loaded and can build responses |
+| `shap_available` | boolean | `shap` package is installed (imported lazily, only for SHAP explanations) |
+| `model_type` | string \| null | Classifier class: `LogisticRegression` or `TorchMLPClassifier`; `null` until the model is loaded |
+| `vectorizer_type` | string \| null | Feature extractor: `TfidfVectorizer`, `CountVectorizer` or `SentenceEmbeddingVectorizer`; `null` until loaded |
+| `explanations_supported` | boolean \| null | Whether `explain: true` returns word-level explanations (TF-IDF/Count features **and** logistic regression); `null` until loaded |
 
 **Response (503 Service Unavailable)**:
 ```json
@@ -126,6 +137,8 @@ Predict sentiment for a single text input.
   }
 }
 ```
+
+> **Explanations and model type**: word-level explanations need a vocabulary and linear coefficients. For bundles trained with sentence embeddings or the MLP, `explain: true` is accepted, the prediction is returned normally and `"explanation"` is `null` (a warning is logged). Check `GET /health` → `explanations_supported`.
 
 **Errors**:
 | Status | Cause | Example Response |
@@ -226,11 +239,24 @@ class PredictionResponse(BaseModel):
     probabilities: Dict[str, float]
     confidence: float = Field(..., ge=0.0, le=1.0)
     timestamp: datetime  # UTC
-    explanation: Optional[Explanation] = None
+    explanation: Optional[Explanation] = None  # null if not requested or not supported
 
 class Explanation(BaseModel):
     method: Literal["weights", "shap"]
     top_contributors: List[Tuple[str, float]]
+```
+
+### `HealthResponse`
+```python
+class HealthResponse(BaseModel):
+    status: str = "healthy"
+    service: str = "airline-sentiment-api"
+    timestamp: datetime  # UTC
+    model_loaded: bool
+    shap_available: bool
+    model_type: Optional[str] = None
+    vectorizer_type: Optional[str] = None
+    explanations_supported: Optional[bool] = None
 ```
 
 ### `ErrorResponse` (Standard Error Format)
@@ -312,6 +338,14 @@ uvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload
 curl http://localhost:8000/health
 ```
 
+### Serving Another Model
+The API serves one model bundle, chosen by `MODEL_PATH` (default `artifacts/model_bundle.joblib`):
+```bash
+python scripts/train.py --vectorizer sentence_embedding --output-dir artifacts/embedding_lr
+MODEL_PATH=artifacts/embedding_lr/model_bundle.joblib uvicorn src.api.main:app --port 8000
+```
+Bundles with sentence embeddings or the MLP require the optional dependencies (`requirements-dl.txt`, CPU-only torch). The embedding model is loaded and warmed up at startup, so the first request is not slower than the rest.
+
 ### Docker (Example)
 ```dockerfile
 FROM python:3.11-slim
@@ -319,6 +353,9 @@ FROM python:3.11-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# Only for embedding / MLP bundles:
+# RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
+#  && pip install --no-cache-dir -r requirements-dl.txt
 
 COPY . .
 EXPOSE 8000
@@ -350,8 +387,14 @@ A: The model outputs calibrated probabilities based on learned weights. Even str
 **Q: What does `method: "weights"` mean in explanations?**  
 A: Explanations use raw logistic regression coefficients. If `method: "shap"`, SHAP values were computed (requires the `shap` package).
 
+**Q: Why is `explanation` null although I sent `"explain": true`?**  
+A: The served model cannot produce word-level explanations: sentence-embedding dimensions are not words, and the MLP has no per-word coefficients. `GET /health` shows `explanations_supported: false` for such bundles.
+
+**Q: Which model is the API serving?**  
+A: See `model_type` and `vectorizer_type` in `GET /health`. To switch, set `MODEL_PATH` to another bundle and restart (see [Serving Another Model](#serving-another-model)).
+
 **Q: Why does a batch return fewer results than requested?**  
 A: Some items may have failed during processing (e.g., empty text after cleaning). Errors are logged, and successful predictions are returned. Check server logs for details.
 
 **Q: How do I change the API log level?**  
-A: Set `serving.api.log_level: "WARNING"` in `config.yaml`, or override via environment variable: `API_LOG_LEVEL=ERROR`. Available levels: `DEBUG`, `INFO`, `WARNING`, `ERROR`.
+A: Set `serving.api.log_level: "WARNING"` in `config.yaml`, or override via environment variable: `API_LOG_LEVEL=ERROR`. Available levels: `DEBUG`, `INFO`, `WARNING`, `ERROR`.

@@ -20,12 +20,14 @@ data:
 # 2. TEXT PREPROCESSING
 preprocessing:
   vectorizer:
-    type: "tfidf"                          # "tfidf" or "count"
-    max_features: 2000                     # Maximum vocabulary size
-    ngram_range: [1, 2]                    # N-gram range: [min, max]
+    type: "tfidf"                          # "tfidf" | "count" | "sentence_embedding" (CLI: --vectorizer)
+    max_features: 2000                     # Maximum vocabulary size (tfidf/count only)
+    ngram_range: [1, 2]                    # N-gram range: [min, max] (tfidf/count only)
     lowercase: true                        # Convert to lowercase before vectorizing
-    stop_words: null                       # "english" or null (keep stopwords)
-  
+    stop_words: null                       # Not read by the code: stopword removal is controlled by nlp.remove_stopwords
+
+  # cleaning / nlp apply to tfidf/count. They are embedded in the fitted vectorizer,
+  # so training and inference (API, CLI, dashboard) clean text identically.
   cleaning:
     lowercase: true                        # Mirrors vectorizer.lowercase for flexibility
     remove_urls: true                      # Strip http/https/www links
@@ -35,23 +37,49 @@ preprocessing:
   
   nlp:
     lemmatize: false                       # Enable NLTK lemmatization
-    remove_stopwords: false                # Remove stopwords (only if lemmatize=true)
+    remove_stopwords: false                # Remove English stopwords (vectorizer stop list; also in lemmatization)
+
+  # Used only when vectorizer.type == "sentence_embedding"
+  # Requires torch + sentence-transformers (requirements-dl.txt)
+  embedding:
+    model_name: "sentence-transformers/all-MiniLM-L6-v2"  # Any Sentence-Transformers model (384-d here)
+    batch_size: 64                         # Encoding batch size
+    normalize: true                        # L2-normalize embeddings (recommended for linear models)
+    device: "cpu"                          # "cpu" or "cuda"
+    cleaning:                              # Light cleaning: casing, punctuation and emoji carry sentiment
+      lowercase: false
+      remove_urls: true
+      remove_mentions: true                # Parity with TF-IDF: airline handles are not sentiment
+      remove_special_chars: false
+      remove_extra_whitespace: true
 
 # 3. MODEL CONFIGURATION
 model:
-  type: "logistic_regression"              # Currently the only supported algorithm
-  training:
-    random_state: 42                       # Seed for reproducibility
-    max_iter: 500                          # Maximum optimizer iterations
+  type: "logistic_regression"              # "logistic_regression" | "mlp" (CLI: --model)
+  training:                                # Shared by both model types (except max_iter)
+    random_state: 42                       # Seed for split, model init and shuffling
+    max_iter: 500                          # Maximum optimizer iterations (logistic regression)
     class_weight: "balanced"               # "balanced", "none", or dict
     use_confidence_weights: true           # Use annotation confidence as sample_weight
   
-  regularization:
+  regularization:                          # Logistic regression only
     solver: "lbfgs"                        # "lbfgs", "liblinear", "saga"
     penalty: "l2"                          # "l2", "l1", "elasticnet", "none"
     C: 1.0                                 # Inverse regularization strength (lower = stronger)
     l1_ratio: 0.5                          # Only for penalty="elasticnet": [0.0, 1.0]
-  
+
+  # PyTorch MLP — used only when type == "mlp" (requires torch)
+  mlp:
+    hidden_dims: [128]                     # Hidden layer sizes, e.g. [256, 64]
+    dropout: 0.3                           # Dropout after each hidden layer
+    learning_rate: 0.001                   # AdamW learning rate
+    weight_decay: 0.0001                   # AdamW decoupled weight decay
+    batch_size: 64                         # Mini-batch size (sparse TF-IDF is densified per batch only)
+    max_epochs: 50                         # Upper bound on epochs
+    patience: 5                            # Early stopping: epochs without validation improvement
+    validation_fraction: 0.1               # Carved from the training split; the test set is never used
+    device: "cpu"                          # "cpu" or "cuda"
+
   artifacts:
     path: "artifacts/model_bundle.joblib"  # Path to save the trained model
     auto_save: true                        # Auto-save after training completes
@@ -202,6 +230,25 @@ interpretability:
   shap: { enabled: true, background_samples: 200 }
 ```
 
+### Sentence Embeddings (Best Accuracy)
+```yaml
+preprocessing:
+  vectorizer: { type: "sentence_embedding" }
+  embedding: { model_name: "sentence-transformers/all-MiniLM-L6-v2", normalize: true }
+model:
+  type: "logistic_regression"   # the MLP gives no gain on top of embeddings (see README)
+```
+Equivalent without editing the config: `python scripts/train.py --vectorizer sentence_embedding`.
+Word-level explanations and feature-importance plots are not available for this setup.
+
+### PyTorch MLP
+```yaml
+model:
+  type: "mlp"
+  mlp: { hidden_dims: [256, 64], dropout: 0.3, patience: 5 }
+```
+Or `python scripts/train.py --model mlp` (works with any `vectorizer.type`).
+
 ### Debugging & Interpretation
 ```yaml
 interpretability:
@@ -226,5 +273,8 @@ A: When you want to combine L1 (feature selection) and L2 (weight stability) reg
 **Q: How do I disable console logging?**  
 A: Set `serving.api.log_level: "WARNING"` or run with `PYTHON_LOG_LEVEL=ERROR`.
 
+**Q: TF-IDF or sentence embeddings?**  
+A: Embeddings are ~2 pp macro-F1 better on this dataset but ~40× slower per request, need torch and a 90 MB model, and give no word-level explanations. TF-IDF + logistic regression stays the default. Measured comparison: `python scripts/compare.py` and the README results table.
+
 **Q: Tests pass but model performance is poor?**  
-A: Check: 1) `confidence_threshold` isn't too high (losing data), 2) `max_features` isn't too low (losing signal), 3) `class_weight: "balanced"` is used for imbalanced datasets.
+A: Check: 1) `confidence_threshold` isn't too high (losing data), 2) `max_features` isn't too low (losing signal), 3) `class_weight: "balanced"` is used for imbalanced datasets.
