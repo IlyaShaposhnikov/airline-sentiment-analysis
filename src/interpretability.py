@@ -84,6 +84,46 @@ def supports_word_explanations(vectorizer, model=None) -> bool:
     return bool(has_vocabulary and model_ok)
 
 
+def _to_dense(values) -> np.ndarray:
+    """Convert SHAP output (possibly scipy sparse) to a dense array."""
+    if hasattr(values, "toarray"):
+        return values.toarray()
+    return np.asarray(values)
+
+
+def _shap_values_for_class(
+    shap_values, class_pos: int, n_classes: int
+) -> np.ndarray:
+    """
+    Per-feature SHAP values of the FIRST sample for one class.
+
+    Normalizes the formats ``LinearExplainer.shap_values`` returns:
+    - list with one (n_samples, n_features) array per class
+      (shap < 0.45, multiclass);
+    - ndarray (n_samples, n_features, n_classes) (shap >= 0.45, multiclass);
+    - ndarray (n_samples, n_features): a single output, i.e. binary logistic
+      regression, where values push towards class 1. For class 0 they are
+      negated — the same convention as the weight-based explanations.
+
+    Args:
+        shap_values: Raw output of ``explainer.shap_values(X)``
+        class_pos: Column position of the class in ``model.classes_``
+        n_classes: Number of classes of the model
+
+    Returns:
+        1D array of length n_features
+    """
+    if isinstance(shap_values, list):
+        return _to_dense(shap_values[class_pos])[0].ravel()
+    values = _to_dense(shap_values)
+    if values.ndim == 3:
+        return values[0, :, class_pos]
+    row = values[0].ravel()
+    if n_classes == 2 and class_pos == 0:
+        return -row
+    return row
+
+
 def get_top_features_by_weight(
     model: LogisticRegression,
     vectorizer: CountVectorizer | TfidfVectorizer,
@@ -275,6 +315,7 @@ def _get_shap_explanation(
     vectorizer: CountVectorizer | TfidfVectorizer,
     text: str,
     background_data: np.ndarray | None = None,
+    class_pos: int = 0,
 ) -> dict | None:
     """
     Internal: compute SHAP explanation if SHAP is available.
@@ -284,9 +325,11 @@ def _get_shap_explanation(
         vectorizer: Fitted vectorizer
         text: Input text to explain
         background_data: Optional background data for expected value estimation
+        class_pos: Position in ``model.classes_`` of the class to explain
 
     Returns:
-        Dict with SHAP values per class or None if unavailable/failed
+        Dict with ``values`` (1D, one per vocabulary feature) and
+        ``base_value`` for that class, or None if unavailable/failed
 
     Note:
         Uses LinearExplainer for efficient exact SHAP values on linear models.
@@ -313,30 +356,19 @@ def _get_shap_explanation(
             model, background_data
         )
         shap_values = explainer.shap_values(X_input)
+        values = _shap_values_for_class(
+            shap_values, class_pos, len(model.classes_)
+        )
 
-        # Multiclass returns list[class_idx][sample, feature]
-        if isinstance(shap_values, list):
-            result = {}
-            for idx, class_shap in enumerate(shap_values):
-                try:
-                    base_val = explainer.expected_value[idx]
-                except (AttributeError, IndexError, TypeError, KeyError):
-                    base_val = 0.0
-
-                result[f"class_{idx}"] = {
-                    "values": class_shap[0],
-                    "base_value": base_val,
-                }
-            return result
+        base_val = getattr(explainer, "expected_value", 0.0)
+        base_arr = np.atleast_1d(np.asarray(base_val, dtype=float))
+        if base_arr.size > 1:
+            base_val = float(base_arr[class_pos])
         else:
-            try:
-                base_val = explainer.expected_value
-            except (AttributeError, TypeError, KeyError):
-                base_val = 0.0
-            return {
-                "values": shap_values[0],
-                "base_value": base_val,
-            }
+            base_val = float(base_arr[0])
+            if len(model.classes_) == 2 and class_pos == 0:
+                base_val = -base_val
+        return {"values": values, "base_value": base_val}
 
     except Exception as e:
         logger.warning(f"SHAP explanation failed: {e}")
@@ -426,58 +458,45 @@ def explain_prediction(
 
     # Try SHAP first if requested; fallback to weights on any failure
     if use_shap and SHAP_AVAILABLE:
+        class_pos = int(np.flatnonzero(classes == pred_idx)[0])
         shap_result = _get_shap_explanation(
-            model, vectorizer, text, background_data
+            model, vectorizer, text, background_data, class_pos=class_pos
         )
-        if shap_result is not None:
+        shap_vals = (
+            None if shap_result is None
+            else np.asarray(shap_result.get("values")).ravel()
+        )
+        try:
+            feature_names = vectorizer.get_feature_names_out()
+        except AttributeError:
+            feature_names = np.array(vectorizer.get_feature_names())
+
+        if shap_vals is not None and len(shap_vals) != len(feature_names):
+            # Never pair values with the wrong words: use weights instead
+            logger.warning(
+                f"SHAP returned {len(shap_vals)} values for "
+                f"{len(feature_names)} features; using weights instead"
+            )
+            shap_vals = None
+
+        if shap_vals is not None:
             result["method"] = "shap"
-            if (
-                isinstance(shap_result, dict)
-                and f"class_{pred_idx}" in shap_result
-            ):
-                shap_vals = shap_result[f"class_{pred_idx}"]["values"]
-            else:
-                shap_vals = shap_result.get("values", None)
-
-            if shap_vals is not None:
-                try:
-                    feature_names = vectorizer.get_feature_names_out()
-                except AttributeError:
-                    feature_names = np.array(vectorizer.get_feature_names())
-
-                # Handle potential length mismatch
-                # between SHAP output and features
-                shap_vals_flat = np.asarray(shap_vals).flatten()
-                n_features = min(len(feature_names), len(shap_vals_flat))
-                if len(shap_vals_flat) != len(feature_names):
-                    logger.debug(
-                        f"SHAP values length ({len(shap_vals_flat)}) != "
-                        f"feature_names length ({len(feature_names)}). "
-                        f"Truncating to {n_features} features."
-                    )
-
-                shap_vals_flat = shap_vals_flat[:n_features]
-                feature_names = feature_names[:n_features]
-
-                nonzero_mask = np.abs(shap_vals_flat) > 1e-10
-                nonzero_indices = np.where(nonzero_mask)[0]
-
-                contributors = [
-                    (feature_names[i], float(shap_vals_flat[i]))
-                    for i in nonzero_indices
-                ]
-
-                contributors_sorted = sorted(
-                    contributors, key=lambda x: abs(x[1]), reverse=True
-                )
-                result["top_contributors"] = (
-                    contributors_sorted[:n_top_contributors]
-                )
-                logger.debug(
-                    "SHAP explanation: "
-                    f"{len(result['top_contributors'])} contributors"
-                )
-                return result
+            nonzero_indices = np.flatnonzero(np.abs(shap_vals) > 1e-10)
+            contributors = [
+                (feature_names[i], float(shap_vals[i]))
+                for i in nonzero_indices
+            ]
+            contributors_sorted = sorted(
+                contributors, key=lambda x: abs(x[1]), reverse=True
+            )
+            result["top_contributors"] = (
+                contributors_sorted[:n_top_contributors]
+            )
+            logger.debug(
+                "SHAP explanation: "
+                f"{len(result['top_contributors'])} contributors"
+            )
+            return result
 
     # Fallback to weight-based explanation (always available for linear models)
     classes = model.classes_
@@ -563,14 +582,18 @@ def plot_shap_summary(
         )
         shap_values = explainer.shap_values(X)
 
-        # Multiclass SHAP returns list; select target class
+        # Multiclass: list per class (shap < 0.45) or a trailing class
+        # axis (shap >= 0.45); select the target class
+        target = class_idx or 0
         if isinstance(shap_values, list):
-            if class_idx is not None and class_idx < len(shap_values):
-                values_to_plot = shap_values[class_idx]
-            else:
-                values_to_plot = shap_values[0]
+            target = target if target < len(shap_values) else 0
+            values_to_plot = _to_dense(shap_values[target])
         else:
-            values_to_plot = shap_values
+            values_to_plot = _to_dense(shap_values)
+            if values_to_plot.ndim == 3:
+                if target >= values_to_plot.shape[2]:
+                    target = 0
+                values_to_plot = values_to_plot[:, :, target]
 
         fig = plt.figure(figsize=(10, 8))
         shap.summary_plot(

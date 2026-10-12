@@ -113,6 +113,7 @@ airline-sentiment-analysis/
 │   ├── conftest.py              # Общие фикстуры pytest, маркеры, глобальная конфигурация тестов
 │   ├── test_torch_models.py     # Обучение MLP, ранняя остановка, сохранение, пайплайн и API
 │   ├── test_shap_lazy_import.py # shap импортируется только при запросе SHAP-объяснений
+│   ├── test_shap_values.py      # SHAP-значения сопоставляются нужным словам и классу при любом формате вывода shap
 │   ├── test_api_model_info.py   # Метаданные модели в ModelService и /health
 │   ├── test_compare.py          # Скрипт сравнения: выходные файлы, кэш эмбеддингов, бинарный режим
 │   ├── test_metrics.py          # Определения метрик (macro F1 в бинарном режиме)
