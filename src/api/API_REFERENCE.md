@@ -22,7 +22,7 @@ Comprehensive reference for the Airline Sentiment Analysis REST API endpoints.
 The API currently runs without authentication. For production deployment, consider adding:
 - API keys via `X-API-Key` header
 - JWT tokens for user sessions
-- Rate limiting via `serving.api.rate_limit_per_minute`
+- Rate limiting (`serving.api.rate_limit_per_minute` exists in the config but is not enforced yet)
 
 ## Endpoints
 
@@ -53,6 +53,7 @@ Service metadata and available endpoint list.
   }
 }
 ```
+`config.host`/`config.port` echo `serving.api` from `config.yaml`; the server actually binds to the `uvicorn --host/--port` values.
 
 ---
 
@@ -396,4 +397,4 @@ A: See `model_type` and `vectorizer_type` in `GET /health`. To switch, set `MODE
 A: Some items may have failed during processing (e.g., empty text after cleaning). Errors are logged, and successful predictions are returned. Check server logs for details.
 
 **Q: How do I change the API log level?**  
-A: Set `serving.api.log_level: "WARNING"` in `config.yaml`, or override via environment variable: `API_LOG_LEVEL=ERROR`. Available levels: `DEBUG`, `INFO`, `WARNING`, `ERROR`.
+A: Set `serving.api.log_level: "WARNING"` in `config.yaml`, or override via environment variable: `API_LOG_LEVEL=ERROR`. Available levels: `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL` (an invalid value falls back to `INFO`). It applies to the project's own loggers (`src.*`); uvicorn's access log is controlled by `uvicorn --log-level`.

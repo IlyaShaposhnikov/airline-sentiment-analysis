@@ -115,6 +115,7 @@ airline-sentiment-analysis/
 │   ├── test_shap_lazy_import.py # shap is imported only when SHAP explanations are requested
 │   ├── test_shap_values.py      # SHAP values mapped to the right words/class for every shap output format
 │   ├── test_api_model_info.py   # Model metadata in ModelService and /health
+│   ├── test_api_main.py         # API log level from config/env, 422 handler without deprecated constants
 │   ├── test_compare.py          # Comparison script: outputs, embedding cache, binary mode
 │   ├── test_metrics.py          # Metric definitions (macro F1 in binary mode)
 │   ├── test_runtime.py          # Windows torch/scikit-learn OpenMP workaround and import order
@@ -219,7 +220,7 @@ model:
 serving:
   api: { limits: { max_text_length: 1000, max_batch_size: 100 } }
 ```
-> 💡 The API and dashboard read `MODEL_PATH`, `CORS_ORIGINS` and `API_LOG_LEVEL` from the environment; training uses CLI flags (`--model`, `--vectorizer`, `--seed`, `--binary-mode`). See `configs/CONFIG_GUIDE.md`.
+> 💡 The API reads `MODEL_PATH`, `CORS_ORIGINS` and `API_LOG_LEVEL` from the environment (the dashboard only `MODEL_PATH`); training uses CLI flags (`--model`, `--vectorizer`, `--seed`, `--binary-mode`). See `configs/CONFIG_GUIDE.md`.
 
 ## Testing & CI
 

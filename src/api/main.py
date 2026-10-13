@@ -34,6 +34,7 @@ from .config import (
     API_TITLE,
     API_VERSION,
     CORS_ALLOWED_ORIGINS,
+    LOG_LEVEL,
 )
 from .models import (
     BatchPredictionRequest,
@@ -44,9 +45,26 @@ from .models import (
     PredictionResponse,
 )
 from .services import model_service, SHAP_AVAILABLE
-from src.utils.logging_config import setup_logger
+from src.utils.logging_config import set_package_log_level, setup_logger
 
 logger = setup_logger(__name__)
+
+
+def _apply_log_level(level: str) -> str:
+    """
+    Apply ``serving.api.log_level`` / ``API_LOG_LEVEL`` to all project
+    loggers (src.*); an invalid value falls back to INFO with a warning.
+    """
+    try:
+        return set_package_log_level(level)
+    except ValueError:
+        applied = set_package_log_level("INFO")
+        logger.warning(f"Invalid API log level {level!r}; using INFO")
+        return applied
+
+
+# All src modules are imported above, so their loggers already exist
+_apply_log_level(LOG_LEVEL)
 
 
 # ============================================================================
@@ -98,7 +116,10 @@ def _handle_422(request: Request, exc: RequestValidationError) -> JSONResponse:
         f"422 Validation Error on {request.url}: {'; '.join(errors_summary)}"
     )
     return JSONResponse(
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        # Literal 422: Starlette renamed the constant
+        # (HTTP_422_UNPROCESSABLE_ENTITY is deprecated, the new name is
+        # missing in older versions)
+        status_code=422,
         content=ErrorResponse(
             error="validation_error",
             detail="Request validation failed",

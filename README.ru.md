@@ -115,6 +115,7 @@ airline-sentiment-analysis/
 │   ├── test_shap_lazy_import.py # shap импортируется только при запросе SHAP-объяснений
 │   ├── test_shap_values.py      # SHAP-значения сопоставляются нужным словам и классу при любом формате вывода shap
 │   ├── test_api_model_info.py   # Метаданные модели в ModelService и /health
+│   ├── test_api_main.py         # Уровень логов API из конфига/окружения, обработчик 422 без устаревших констант
 │   ├── test_compare.py          # Скрипт сравнения: выходные файлы, кэш эмбеддингов, бинарный режим
 │   ├── test_metrics.py          # Определения метрик (macro F1 в бинарном режиме)
 │   ├── test_runtime.py          # Обход конфликта OpenMP torch/scikit-learn на Windows и порядок импортов
@@ -219,7 +220,7 @@ model:
 serving:
   api: { limits: { max_text_length: 1000, max_batch_size: 100 } }
 ```
-> 💡 API и панель управления читают из окружения `MODEL_PATH`, `CORS_ORIGINS` и `API_LOG_LEVEL`; для обучения используются флаги CLI (`--model`, `--vectorizer`, `--seed`, `--binary-mode`). Подробнее — `configs/CONFIG_GUIDE.md`.
+> 💡 API читает из окружения `MODEL_PATH`, `CORS_ORIGINS` и `API_LOG_LEVEL` (панель управления — только `MODEL_PATH`); для обучения используются флаги CLI (`--model`, `--vectorizer`, `--seed`, `--binary-mode`). Подробнее — `configs/CONFIG_GUIDE.md`.
 
 ## Тестирование и CI
 

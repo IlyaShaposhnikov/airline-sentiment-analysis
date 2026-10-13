@@ -126,18 +126,18 @@ interpretability:
 serving:
   api:
     enabled: true                          # Enable FastAPI server
-    host: "0.0.0.0"                        # Bind address for uvicorn
-    port: 8000                             # Port for uvicorn
-    endpoint: "/predict"                   # Base path for prediction endpoints
-    log_level: "INFO"                      # Logging level: "DEBUG", "INFO", "WARNING"
-    rate_limit_per_minute: 60              # Request rate limit (optional)
+    host: "0.0.0.0"                        # Informational (shown by GET /); bind with uvicorn --host
+    port: 8000                             # Informational (shown by GET /); bind with uvicorn --port
+    endpoint: "/predict"                   # Not used: routes are fixed in src/api/main.py
+    log_level: "INFO"                      # Level of the src.* loggers in the API (env: API_LOG_LEVEL)
+    rate_limit_per_minute: 60              # Reserved, not enforced yet
     cors_origins: ["*"]                    # Allowed CORS origins (["*"] = all)
     limits:
       max_text_length: 1000                # Max characters per input text
       max_batch_size: 100                  # Max number of texts in a batch request
       min_explain_count: 1                 # Min top words in explanation
       max_explain_count: 20                # Max top words in explanation
-      max_request_size_mb: 10              # Max request body size in MB
+      max_request_size_mb: 10              # Reserved, not enforced yet
   
   dashboard:
     enabled: false                         # Enable Streamlit dashboard
@@ -266,7 +266,7 @@ A: Removing mentions (e.g., `@VirginAmerica`) helps reduce noise and prevents th
 A: When you want to combine L1 (feature selection) and L2 (weight stability) regularization. Requires `solver: saga` and tuning `l1_ratio`.
 
 **Q: How do I disable console logging?**  
-A: Set `serving.api.log_level: "WARNING"` or run with `PYTHON_LOG_LEVEL=ERROR`.
+A: For the API, set `serving.api.log_level: "WARNING"` or run with `API_LOG_LEVEL=ERROR` (uvicorn's own access log: `uvicorn --log-level warning`).
 
 **Q: TF-IDF or sentence embeddings?**  
 A: Embeddings are ~2 pp macro-F1 better on this dataset but ~40× slower per request, need torch and a 90 MB model, and give no word-level explanations. TF-IDF + logistic regression stays the default. Measured comparison: `python scripts/compare.py` and the README results table.

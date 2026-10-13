@@ -6,6 +6,18 @@ import logging
 from pathlib import Path
 import sys
 
+VALID_LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+
+def _normalize_level(level: str) -> str:
+    """Upper-case ``level`` and check it is a standard logging level."""
+    level = str(level).upper()
+    if level not in VALID_LOG_LEVELS:
+        raise ValueError(
+            f"Invalid log level: {level}. Expected one of {VALID_LOG_LEVELS}"
+        )
+    return level
+
 
 def setup_logger(
     name: str,
@@ -27,15 +39,10 @@ def setup_logger(
     Raises:
         ValueError: If an invalid logging level is provided
     """
-    level = level.upper()
-    valid_levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
-    if level not in valid_levels:
-        raise ValueError(
-            f"Invalid log level: {level}. Expected one of {valid_levels}"
-        )
+    level = _normalize_level(level)
 
     logger = logging.getLogger(name)
-    logger.setLevel(getattr(logging, level.upper()))
+    logger.setLevel(getattr(logging, level))
 
     # Idempotent: skip reconfiguration if handlers already exist
     # (prevents duplicate logs)
@@ -60,3 +67,32 @@ def setup_logger(
         logger.addHandler(file_handler)
 
     return logger
+
+
+def set_package_log_level(level: str, prefix: str = "src") -> str:
+    """
+    Set the level of every existing logger in a package.
+
+    ``setup_logger`` gives each module logger its own level, so changing
+    the parent ("src") alone has no effect; this walks all loggers named
+    ``prefix`` or ``prefix.*``.
+
+    Args:
+        level: Logging level name (case-insensitive)
+        prefix: Package name whose loggers are updated
+
+    Returns:
+        The normalized level name that was applied
+
+    Raises:
+        ValueError: If an invalid logging level is provided
+    """
+    level = _normalize_level(level)
+    numeric = getattr(logging, level)
+    for name, logger in list(logging.root.manager.loggerDict.items()):
+        if not isinstance(logger, logging.Logger):
+            continue  # PlaceHolder for a not-yet-created parent
+        if name == prefix or name.startswith(prefix + "."):
+            logger.setLevel(numeric)
+    logging.getLogger(prefix).setLevel(numeric)
+    return level
