@@ -61,6 +61,12 @@ Two feature extractors × two classifiers, evaluated by `scripts/compare.py` on 
 
 Reproduce: `python scripts/compare.py` (and `--binary-mode`). Embeddings are encoded once and cached.
 
+### Side by Side in the Dashboard
+
+The dashboard's **Compare Models** tab runs one text through every trained model. A mixed tweet shows the takeaway above in a single example: all TF-IDF models latch onto *"Delayed"* and answer negative, all embedding models pick up *"the crew was lovely"* and answer positive — the split follows the representation, not the classifier.
+
+![Dashboard: Compare Models tab](docs/images/dashboard_compare.png)
+
 ### Baseline Model Details (TF-IDF + LogReg)
 
 | | Multiclass (3 classes) | Binary (positive/negative) |
