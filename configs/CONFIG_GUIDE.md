@@ -82,7 +82,7 @@ model:
 
   artifacts:
     path: "artifacts/model_bundle.joblib"  # Path to save the trained model
-    auto_save: true                        # Auto-save after training completes
+    auto_save: true                        # Not read: train.py always saves to --output-dir
 
 # 4. EVALUATION & METRICS
 evaluation:
@@ -91,7 +91,7 @@ evaluation:
     stratify: true                         # Preserve class distribution in splits
   
   metrics:
-    primary: ["accuracy", "f1_macro", "f1_weighted", "roc_auc_ovo"]  # Metrics to compute
+    primary: ["accuracy", "f1_macro", "f1_weighted", "roc_auc_ovo"]  # Only src.models.evaluate_model; train/compare always report accuracy, macro F1, ROC-AUC
   
   reporting:
     include_confusion_matrix: true         # Include confusion matrix in reports
@@ -113,10 +113,10 @@ interpretability:
     top_words_threshold: 2.0               # |weight| threshold for displaying top words
     n_top_features: 20                     # Number of top features to show per class
   
-  shap:
-    enabled: false                         # Enable SHAP explanations (requires `shap` package)
-    background_samples: 100                # Number of samples for SHAP background
-    random_state: 42                       # Seed for reproducible plots
+  shap:                                    # Reserved, not read: use --explain --use-shap or use_shap in the API
+    enabled: false
+    background_samples: 100
+    random_state: 42
   
   plot_settings:
     horizontal: true                       # Use horizontal bar charts for feature importance
@@ -139,10 +139,10 @@ serving:
       max_explain_count: 20                # Max top words in explanation
       max_request_size_mb: 10              # Reserved, not enforced yet
   
-  dashboard:
-    enabled: false                         # Enable Streamlit dashboard
-    title: "Airline Sentiment Predictor"   # Dashboard window title
-    framework: "streamlit"                 # "streamlit" or "gradio"
+  dashboard:                               # Not read: start with `streamlit run src/dashboard.py`
+    enabled: false
+    title: "Airline Sentiment Predictor"
+    framework: "streamlit"
 ```
 
 ## Validation & Constraints
@@ -219,10 +219,8 @@ model:
   training: { max_iter: 1000, class_weight: "balanced", use_confidence_weights: true }
   regularization: { solver: "saga", penalty: "elasticnet", C: 0.5, l1_ratio: 0.3 }
 preprocessing:
-  vectorizer: { max_features: 5000, ngram_range: [1, 3], stop_words: "english" }
+  vectorizer: { max_features: 5000, ngram_range: [1, 3] }
   nlp: { lemmatize: true, remove_stopwords: true }
-interpretability:
-  shap: { enabled: true, background_samples: 200 }
 ```
 
 ### Sentence Embeddings (Best Accuracy)
@@ -248,12 +246,12 @@ Or `python scripts/train.py --model mlp` (works with any `vectorizer.type`).
 ```yaml
 interpretability:
   weight_based: { top_words_threshold: 1.0, n_top_features: 50 }
-  shap: { enabled: true }
 evaluation:
   reporting:
     include_confusion_matrix: true
     misclassified_examples: { n_top: 50, include_text: true }
 ```
+SHAP explanations: `python scripts/train.py --explain --use-shap` (requires the `shap` package).
 
 ## FAQ
 

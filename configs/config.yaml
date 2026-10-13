@@ -15,7 +15,7 @@ preprocessing:
     max_features: 2000
     ngram_range: [1, 2]
     lowercase: true
-    stop_words: null  # or "english"
+    stop_words: null  # Not read: stopwords are controlled by nlp.remove_stopwords
   
   cleaning:
     lowercase: true
@@ -81,8 +81,8 @@ model:
     validation_fraction: 0.1  # Carved from the training split; test untouched
     device: "cpu"             # or "cuda"
   artifacts:
-    path: "artifacts/model_bundle.joblib"
-    auto_save: true
+    path: "artifacts/model_bundle.joblib"  # Bundle served by the API/dashboard (env: MODEL_PATH)
+    auto_save: true  # Not read: train.py always saves to --output-dir
 
 # EVALUATION & METRICS
 evaluation:
@@ -91,6 +91,8 @@ evaluation:
     stratify: true  # Preserve class distribution
   
   metrics:
+    # Read only by src.models.evaluate_model (library helper); train.py and
+    # compare.py always report accuracy, macro F1 and ROC-AUC
     primary: ["accuracy", "f1_macro", "f1_weighted", "roc_auc_ovo"]
   
   reporting:
@@ -113,10 +115,12 @@ interpretability:
     top_words_threshold: 2.0  # Show words with |weight| > threshold
     n_top_features: 20
   
+  # Reserved, not read yet: SHAP is switched on per run with
+  # --explain --use-shap (train.py, predict.py) or use_shap in the API
   shap:
-    enabled: false  # Requires shap package
+    enabled: false
     background_samples: 100
-    random_state: 42  # For reproducible plots
+    random_state: 42
   
   plot_settings:
     horizontal: true  # Horizontal bar chart for feature importance
@@ -126,20 +130,21 @@ interpretability:
 serving:
   api:
     enabled: true
-    host: "0.0.0.0"
-    port: 8000
-    endpoint: "/predict"
-    log_level: "INFO"
-    rate_limit_per_minute: 60
+    host: "0.0.0.0"  # Informational (GET /); bind with uvicorn --host
+    port: 8000       # Informational (GET /); bind with uvicorn --port
+    endpoint: "/predict"  # Not used: routes are fixed in src/api/main.py
+    log_level: "INFO"     # src.* loggers in the API (env: API_LOG_LEVEL)
+    rate_limit_per_minute: 60  # Reserved, not enforced yet
     cors_origins: ["*"]
     limits:
       max_text_length: 1000
       max_batch_size: 100
       min_explain_count: 1
       max_explain_count: 20
-      max_request_size_mb: 10
+      max_request_size_mb: 10  # Reserved, not enforced yet
   
+  # Not read: the dashboard is started with `streamlit run src/dashboard.py`
   dashboard:
     enabled: false
     title: "Airline Sentiment Predictor"
-    framework: "streamlit"  # or "gradio"
+    framework: "streamlit"
