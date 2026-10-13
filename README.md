@@ -7,8 +7,11 @@
 [![Streamlit](https://img.shields.io/badge/Streamlit-%23FF4B4B.svg?logo=streamlit&logoColor=white)](https://streamlit.io/)
 [![CI Status](https://github.com/IlyaShaposhnikov/airline-sentiment-analysis/actions/workflows/test.yml/badge.svg)](https://github.com/IlyaShaposhnikov/airline-sentiment-analysis/actions)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://airline-sentiment-lab.streamlit.app/)
 
-End-to-end ML/NLP pipeline for predicting airline tweet sentiment. Features confidence-aware training, explainable AI, production-ready REST API, interactive dashboard, and CI with comprehensive testing.
+End-to-end ML/NLP pipeline for predicting airline tweet sentiment. Compares TF-IDF and sentence embeddings with logistic regression and a PyTorch MLP over five seeds; features confidence-aware training, explainable predictions, a REST API, a multi-model dashboard with a hosted demo, and CI with comprehensive testing.
+
+**Live demo:** [airline-sentiment-lab.streamlit.app](https://airline-sentiment-lab.streamlit.app/) — switch between six trained models and compare them on your own text.
 
 ## Overview
 
@@ -17,19 +20,19 @@ This project demonstrates a complete machine learning lifecycle: from raw data i
 - **Dataset**: [Twitter US Airline Sentiment](https://www.kaggle.com/crowdflower/twitter-airline-sentiment) (confidence-filtered)
 - **Models**: TF-IDF or sentence embeddings (Sentence-Transformers) × Logistic Regression or a PyTorch MLP, all with confidence-aware sample weighting; a reproducible multi-seed comparison is included
 - **Interpretability**: Model weights + SHAP explanations (optional)
-- **Deployment**: FastAPI REST API + Streamlit interactive dashboard
-- **Quality**: 230+ unit and integration tests, GitHub Actions CI on Python 3.10–3.12, dependency auditing with `pip-audit`
+- **Deployment**: FastAPI REST API (one model) + Streamlit dashboard (switch and compare all trained models), also hosted as an [online demo](https://airline-sentiment-lab.streamlit.app/)
+- **Quality**: 290+ unit and integration tests, GitHub Actions CI on Python 3.10–3.12, dependency auditing with `pip-audit`
 
 ## Features
 
 | Category | Highlights |
 |----------|------------|
-| **Data & Preprocessing** | Confidence threshold filtering, configurable cleaning (URLs, mentions, punctuation), optional lemmatization, TF-IDF/Count vectorization; cleaning is embedded in the vectorizer, so training and inference process text identically |
-| **Training & Evaluation** | Confidence-weighted learning, stratified splits, comprehensive metrics (F1, ROC-AUC, confusion matrix), auto-export to JSON/CSV, multi-seed comparison of feature extractors × classifiers |
-| **Interpretability** | Top contributing words per class, per-prediction explanations, SHAP fallback if package unavailable |
-| **API & Serving** | Async-safe FastAPI endpoints, Pydantic v2 validation, thread-safe model service, CORS, timeout handling |
-| **Dashboard** | Switch between all trained models in `artifacts/`, side-by-side model comparison on one text (prediction, confidence, latency), single/batch prediction, CSV/JSON export, API health check |
-| **Testing & CI** | Unit + integration tests, conditional PR/main workflows, pytest-timeout, pip-audit security checks, Codecov integration |
+| **Data & Preprocessing** | Confidence threshold filtering, configurable cleaning (URLs, mentions, punctuation), optional lemmatization, TF-IDF/Count vectorization or sentence embeddings with a light cleaning profile; cleaning is embedded in the vectorizer, so training and inference process text identically |
+| **Training & Evaluation** | Confidence-weighted learning (also in the PyTorch MLP with early stopping), stratified splits with the vectorizer fitted on train only, comprehensive metrics (macro F1, ROC-AUC, confusion matrix), auto-export to JSON/CSV, multi-seed comparison of feature extractors × classifiers |
+| **Interpretability** | Top contributing words per class and per prediction for TF-IDF + logistic regression, via model weights or SHAP (imported lazily, falls back to weights); automatically disabled for embedding and MLP models |
+| **API & Serving** | Async-safe FastAPI endpoints, Pydantic v2 validation, thread-safe model service, CORS, timeout handling; `/health` reports the served model and whether it can explain, `MODEL_PATH` selects the bundle |
+| **Dashboard** | Switch between all trained models in `artifacts/` (or the committed demo set), side-by-side model comparison on one text (prediction, confidence, latency), single/batch prediction, CSV/JSON export, API health check |
+| **Testing & CI** | Unit + integration tests incl. regression tests for data leakage and train/serve skew, a fake sentence encoder (no model downloads in CI), conditional PR/main workflows, pytest-timeout, pip-audit security checks, Codecov integration |
 
 ## Model Performance & Results
 
@@ -212,7 +215,7 @@ UI opens at: http://localhost:8501
 The sidebar lists every bundle in `artifacts/` (`artifacts/model_bundle.joblib` and `artifacts/<run>/model_bundle.joblib`, labelled from the run's `config_used.yaml` and `metrics.json`); the **Compare Models** tab runs the same text through several of them. Each model is loaded once and cached; bundles with the same embedding model share one encoder. The REST API still serves a single model (`MODEL_PATH`).
 
 ### 6. Hosted Demo (Streamlit Community Cloud)
-The same dashboard runs online from `demo/`: `artifacts/` is not committed, so the dashboard falls back to the small committed set in `demo/models/` (six runs, ~1.3 MB of bundles; `DASHBOARD_MODELS_DIR` overrides the choice).
+The same dashboard runs online at [airline-sentiment-lab.streamlit.app](https://airline-sentiment-lab.streamlit.app/) from `demo/`: `artifacts/` is not committed, so the dashboard falls back to the small committed set in `demo/models/` (six runs, ~1.3 MB of bundles; `DASHBOARD_MODELS_DIR` overrides the choice).
 ```bash
 python scripts/export_demo.py   # copy the runs from artifacts/ into demo/models/
 ```
@@ -300,7 +303,7 @@ OMP_NUM_THREADS=1 python scripts/train.py --vectorizer sentence_embedding
 | API | `fastapi`, `uvicorn`, `pydantic>=2` |
 | UI | `streamlit`, `requests`, `matplotlib`, `seaborn` |
 | Deep learning (optional) | `torch`, `sentence-transformers` |
-| Testing | `pytest`, `pytest-cov`, `pytest-asyncio`, `pytest-timeout`, `pip-audit` |
+| Testing | `pytest`, `pytest-cov`, `pytest-asyncio`, `pytest-timeout`, `pip-audit` (CI) |
 
 ## Author
 
