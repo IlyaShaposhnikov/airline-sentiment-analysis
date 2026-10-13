@@ -27,6 +27,7 @@ from src.api.config import (  # noqa: E402
     API_VERSION,
     MAX_BATCH_SIZE,
     MODEL_PATH,
+    get_model_path,
 )
 from src.api.services import model_service  # noqa: E402
 from src.interpretability import SHAP_AVAILABLE  # noqa: E402
@@ -92,7 +93,7 @@ def check_model_status() -> dict:
     """
     status = {
         "model_path": MODEL_PATH,
-        "exists": Path(MODEL_PATH).exists(),
+        "exists": get_model_path().exists(),
         "loaded": False,
         "shap_available": SHAP_AVAILABLE,
         "model_type": None,

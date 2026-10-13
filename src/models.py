@@ -1,8 +1,9 @@
 """
 Core ML module for model lifecycle management.
 
-Handles LogisticRegression creation, training with confidence-aware weights,
-evaluation with multi-metric support, persistence via joblib, and prediction.
+Handles classifier creation (logistic regression or a PyTorch MLP), training
+with confidence-aware weights, evaluation with multi-metric support,
+persistence via joblib, and prediction.
 All functions validate inputs explicitly and log actionable errors.
 """
 import json
@@ -12,7 +13,7 @@ import joblib
 import numpy as np
 import pandas as pd
 from scipy.sparse import spmatrix
-from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+import sklearn
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
     accuracy_score,
@@ -26,6 +27,51 @@ from .torch_models import TorchMLPClassifier
 from .utils.logging_config import setup_logger
 
 logger = setup_logger(__name__)
+
+# Any fitted classifier of the pipeline (both expose fit/predict/predict_proba
+# and classes_)
+Classifier = LogisticRegression | TorchMLPClassifier
+
+
+def _sklearn_version(version: str = sklearn.__version__) -> tuple[int, int]:
+    """(major, minor) of a scikit-learn version string, e.g. "1.8.0"."""
+    parts = version.split(".")
+    try:
+        return int(parts[0]), int(parts[1])
+    except (IndexError, ValueError):
+        return (0, 0)
+
+
+# scikit-learn 1.8 selects the penalty through l1_ratio and deprecates
+# `penalty`; older versions (the newest on Python 3.10 is 1.7) ignore
+# l1_ratio unless penalty="elasticnet"
+PENALTY_VIA_L1_RATIO = _sklearn_version() >= (1, 8)
+
+
+def _penalty_kwargs(
+    penalty: str, l1_ratio: float | None, via_l1_ratio: bool
+) -> dict:
+    """
+    LogisticRegression keyword arguments that select ``penalty``.
+
+    Args:
+        penalty: "l1", "l2", "elasticnet" or "none"
+        l1_ratio: Mixing parameter for elasticnet
+        via_l1_ratio: True for scikit-learn >= 1.8 (``l1_ratio`` API)
+
+    Returns:
+        Dict with ``l1_ratio`` (>= 1.8) or ``penalty``/``l1_ratio``
+        (older versions). "none" is expressed as C=inf by the caller and
+        adds nothing here.
+    """
+    if penalty == "none":
+        return {}
+    if via_l1_ratio:
+        ratio = {"l1": 1.0, "l2": 0.0}.get(penalty, l1_ratio)
+        return {"l1_ratio": ratio}
+    if penalty == "elasticnet":
+        return {"penalty": "elasticnet", "l1_ratio": l1_ratio}
+    return {"penalty": penalty}
 
 
 def _validate_solver_penalty(
@@ -121,7 +167,7 @@ def _create_mlp(config: dict) -> TorchMLPClassifier:
     return TorchMLPClassifier(**params)
 
 
-def create_model(config: dict) -> LogisticRegression | TorchMLPClassifier:
+def create_model(config: dict) -> Classifier:
     """
     Initialize the classifier selected by ``model.type``.
 
@@ -137,11 +183,12 @@ def create_model(config: dict) -> LogisticRegression | TorchMLPClassifier:
         or model type unsupported
 
     Note:
-        Penalty → (l1_ratio, C) mapping:
-        - none: l1_ratio=None, C=np.inf (no regularization)
-        - l1: l1_ratio=1.0, C=config value
-        - l2: l1_ratio=0.0, C=config value (explicit to avoid sklearn warning)
-        - elasticnet: l1_ratio=config value, C=config value
+        Penalty mapping (see ``_penalty_kwargs``):
+        - none: C=np.inf (no regularization)
+        - scikit-learn >= 1.8: l1 → l1_ratio=1.0, l2 → l1_ratio=0.0,
+          elasticnet → l1_ratio from config
+        - older scikit-learn: penalty passed explicitly (l1_ratio only for
+          elasticnet), otherwise l1/elasticnet would silently become L2
     """
     model_cfg = config.get("model", {})
     training_cfg = model_cfg.get("training", {})
@@ -151,15 +198,14 @@ def create_model(config: dict) -> LogisticRegression | TorchMLPClassifier:
         raise ValueError("Missing required config key: model.type")
     if model_cfg["type"] == "mlp":
         return _create_mlp(config)
-    if "max_iter" not in training_cfg:
-        raise ValueError(
-            "Missing required config key: model.training.max_iter"
-        )
-
     if model_cfg["type"] != "logistic_regression":
         raise ValueError(
             f"Unsupported model_type: {model_cfg['type']}. "
             f"Supported: {', '.join(SUPPORTED_MODEL_TYPES)}."
+        )
+    if "max_iter" not in training_cfg:
+        raise ValueError(
+            "Missing required config key: model.training.max_iter"
         )
 
     # Handle class_weight: "balanced", "none" → None, or dict
@@ -178,27 +224,16 @@ def create_model(config: dict) -> LogisticRegression | TorchMLPClassifier:
 
     _validate_solver_penalty(solver, penalty, l1_ratio_config)
 
-    # Map penalty enum to sklearn parameters
-    if penalty == "none":
-        l1_ratio = None  # No regularization
-        C_val = np.inf   # C=np.inf disables regularization in sklearn
-    elif penalty == "l1":
-        l1_ratio = 1.0   # Pure L1
-        C_val = reg_cfg.get("C", 1.0)
-    elif penalty == "l2":
-        l1_ratio = 0.0   # Pure L2 (explicit to avoid warning)
-        C_val = reg_cfg.get("C", 1.0)
-    elif penalty == "elasticnet":
-        l1_ratio = l1_ratio_config  # Use config value [0.0, 1.0]
-        C_val = reg_cfg.get("C", 1.0)
-    else:
-        # Fallback: default to L2 regularization
-        l1_ratio = 0.0
-        C_val = reg_cfg.get("C", 1.0)
+    # C=np.inf disables regularization (penalty "none")
+    C_val = np.inf if penalty == "none" else reg_cfg.get("C", 1.0)
+    penalty_kwargs = _penalty_kwargs(
+        penalty, l1_ratio_config, PENALTY_VIA_L1_RATIO
+    )
+    l1_ratio = penalty_kwargs.get("l1_ratio")
 
     logger.debug(
         f"Regularization config: solver={solver}, penalty={penalty}, "
-        f"C={C_val}, l1_ratio={l1_ratio}"
+        f"C={C_val}, sklearn kwargs={penalty_kwargs}"
     )
 
     model_kwargs = {
@@ -207,10 +242,8 @@ def create_model(config: dict) -> LogisticRegression | TorchMLPClassifier:
         "random_state": training_cfg.get("random_state", 42),
         "solver": solver,
         "C": C_val,
+        **penalty_kwargs,
     }
-
-    if l1_ratio is not None:
-        model_kwargs["l1_ratio"] = l1_ratio
 
     logger.debug(
         f"Model kwargs: {model_kwargs}",
@@ -231,9 +264,10 @@ def train_model(
     y_train: np.ndarray,
     config: dict,
     sample_weights: np.ndarray | None = None,
-) -> LogisticRegression:
+) -> Classifier:
     """
-    Train LogisticRegression with optional confidence-based sample weighting.
+    Train the configured classifier with optional confidence-based
+    sample weighting.
 
     Args:
         X_train: Feature matrix (dense numpy array or scipy sparse)
@@ -243,7 +277,7 @@ def train_model(
         (e.g., annotation confidence)
 
     Returns:
-        Fitted LogisticRegression model
+        Fitted classifier (LogisticRegression or TorchMLPClassifier)
 
     Raises:
         ValueError: If inputs are None or shape mismatch detected
@@ -302,7 +336,7 @@ def train_model(
 
 
 def evaluate_model(
-    model: LogisticRegression,
+    model: Classifier,
     X: np.ndarray | spmatrix,
     y_true: np.ndarray,
     config: dict,
@@ -312,7 +346,7 @@ def evaluate_model(
     Evaluate model using metrics specified in configuration.
 
     Args:
-        model: Fitted LogisticRegression instance
+        model: Fitted classifier
         X: Feature matrix for evaluation
         y_true: Ground truth labels
         config: Configuration dict with metrics/reporting settings
@@ -459,8 +493,8 @@ def prepare_sample_weights(
 
 
 def save_model(
-    model: LogisticRegression,
-    vectorizer: CountVectorizer | TfidfVectorizer,
+    model: Classifier,
+    vectorizer,
     output_dir: str | Path,
     filename: str = "model_bundle.joblib",
 ) -> Path:
@@ -468,8 +502,8 @@ def save_model(
     Save trained model, vectorizer, and mappings to disk via joblib.
 
     Args:
-        model: Fitted LogisticRegression instance
-        vectorizer: Fitted CountVectorizer or TfidfVectorizer
+        model: Fitted classifier
+        vectorizer: Fitted vectorizer (TF-IDF/Count or sentence embeddings)
         output_dir: Directory to save bundle (created if missing)
         filename: Output filename (default: model_bundle.joblib)
 
@@ -497,12 +531,7 @@ def save_model(
 
 def load_model(
     model_path: str | Path,
-) -> tuple[
-    LogisticRegression,
-    CountVectorizer | TfidfVectorizer,
-    dict,
-    dict
-]:
+) -> tuple[Classifier, object, dict, dict]:
     """
     Load trained model bundle from disk.
 
@@ -536,8 +565,8 @@ def load_model(
 
 
 def predict_sentiment(
-    model: LogisticRegression,
-    vectorizer: CountVectorizer | TfidfVectorizer,
+    model: Classifier,
+    vectorizer,
     texts: str | list[str],
     return_proba: bool = False,
 ) -> np.ndarray | tuple[np.ndarray, np.ndarray]:
@@ -545,7 +574,7 @@ def predict_sentiment(
     Predict sentiment for one or more text samples.
 
     Args:
-        model: Fitted LogisticRegression instance
+        model: Fitted classifier
         vectorizer: Fitted vectorizer for text transformation
         texts: Single string or list of strings to classify
         return_proba: If True, return (predictions, probabilities);

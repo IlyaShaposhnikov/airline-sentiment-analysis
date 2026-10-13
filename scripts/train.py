@@ -60,8 +60,16 @@ from src.preprocessing import create_vectorizer  # noqa: E402
 from src.utils.logging_config import setup_logger  # noqa: E402
 from sklearn.exceptions import ConvergenceWarning  # noqa: E402
 
-# Configure root logger
-logger = setup_logger("train", level="INFO", log_file="artifacts/training.log")
+logger = setup_logger(
+    "train", level="INFO",
+    log_file=str(PROJECT_ROOT / "artifacts" / "training.log"),
+)
+
+
+def resolve_path(path: str | Path) -> Path:
+    """Resolve a relative CLI path against the project root (not the cwd)."""
+    path = Path(path)
+    return path if path.is_absolute() else PROJECT_ROOT / path
 
 
 def parse_args() -> argparse.Namespace:
@@ -92,7 +100,10 @@ def parse_args() -> argparse.Namespace:
         "--output-dir",
         type=str,
         default="artifacts",
-        help="Directory to save model and reports",
+        help=(
+            "Directory to save model and reports "
+            "(relative paths are resolved against the project root)"
+        ),
     )
 
     # Binary mode: filter out neutral class for simpler classification task
@@ -220,9 +231,7 @@ def main(args: argparse.Namespace) -> int:
     # =========================================================================
     # 1. Load configuration
     # =========================================================================
-    config_path = Path(args.config)
-    if not config_path.is_absolute():
-        config_path = PROJECT_ROOT / config_path
+    config_path = resolve_path(args.config)
 
     if not config_path.exists():
         logger.error(f"Config file not found: {config_path}")
@@ -255,7 +264,7 @@ def main(args: argparse.Namespace) -> int:
         logger.info(f"Overridden vectorizer type to {vectorizer_override}")
 
     # Setup output directory
-    output_dir = Path(args.output_dir)
+    output_dir = resolve_path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Output directory: {output_dir}")
 
@@ -371,13 +380,14 @@ def main(args: argparse.Namespace) -> int:
     y_proba = model.predict_proba(X_test)
 
     # compute_comprehensive_metrics auto-detects binary/multiclass
-    # and computes appropriate metrics
+    # and computes appropriate metrics; it reads
+    # config["evaluation"]["reporting"], so it gets the full config
     reporting_cfg = eval_cfg.get("reporting", {})
     metrics = compute_comprehensive_metrics(
         y_test,
         y_pred,
         y_proba,
-        config=reporting_cfg,
+        config=cfg,
         class_names=class_names,
         auto_export=False,  # Export handled separately for more control
         output_dir=output_dir,

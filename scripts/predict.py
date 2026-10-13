@@ -158,7 +158,10 @@ def load_model_bundle(model_path: str | Path):
         model_path
     )
     logger.info(f"Model loaded from {model_path}")
-    logger.info(f"Classes: {list(target_mapping_inv.values())}")
+    logger.info(
+        "Classes: "
+        f"{[target_mapping_inv.get(int(c), str(c)) for c in model.classes_]}"
+    )
     return model, vectorizer, target_mapping_inv
 
 

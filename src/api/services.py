@@ -11,6 +11,7 @@ Raises:
 """
 import asyncio
 from datetime import datetime, timezone
+from pathlib import Path
 import threading
 
 from fastapi import HTTPException, status
@@ -23,10 +24,15 @@ from src.interpretability import (
 )
 from src.models import load_model, predict_sentiment
 from src.utils.logging_config import setup_logger
-from .config import get_model_path, is_model_available
+from .config import get_model_path
 from .models import Explanation, PredictionRequest, PredictionResponse
 
 logger = setup_logger(__name__)
+
+
+def is_model_available(model_path: str | Path) -> bool:
+    """Whether the bundle file exists (module-level so tests can patch it)."""
+    return Path(model_path).exists()
 
 
 class ModelService:
@@ -95,7 +101,7 @@ class ModelService:
         if self._loaded:
             return
 
-        if not is_model_available():
+        if not is_model_available(self._model_path):
             raise FileNotFoundError(
                 f"Model bundle not found at: {self._model_path}\n"
                 "Please run scripts/train.py first or set MODEL_PATH env var."

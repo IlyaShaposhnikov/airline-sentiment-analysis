@@ -12,6 +12,7 @@ from pydantic import (
 )
 
 from .config import (
+    DEFAULT_EXPLAIN_COUNT,
     MAX_BATCH_SIZE,
     MAX_EXPLAIN_COUNT,
     MAX_TEXT_LENGTH,
@@ -37,10 +38,14 @@ class BasePredictionRequest(BaseAPIModel):
     n_explain: Annotated[
         int,
         Field(
-            default=MIN_EXPLAIN_COUNT,
+            default=DEFAULT_EXPLAIN_COUNT,
             ge=MIN_EXPLAIN_COUNT,
             le=MAX_EXPLAIN_COUNT,
-            description="Number of top contributing words to return (1-20)"
+            description=(
+                "Number of top contributing words to return "
+                f"({MIN_EXPLAIN_COUNT}-{MAX_EXPLAIN_COUNT}, "
+                f"default {DEFAULT_EXPLAIN_COUNT})"
+            ),
         )
     ]
 

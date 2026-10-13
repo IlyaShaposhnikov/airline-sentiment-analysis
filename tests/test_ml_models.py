@@ -20,6 +20,8 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 from src.models import (
+    _penalty_kwargs,
+    _sklearn_version,
     _validate_solver_penalty,
     create_model,
     train_model,
@@ -244,6 +246,55 @@ class TestCreateModel:
         model = create_model(sample_config)
         assert model.solver == "lbfgs"
         assert getattr(model, "l1_ratio", None) in [None, 0.0]
+
+
+class TestPenaltyKwargs:
+    """
+    Penalty selection for both scikit-learn APIs. Regression: with
+    scikit-learn < 1.8 (Python 3.10) l1/elasticnet were passed only via
+    l1_ratio, which those versions ignore, so they silently became L2.
+    """
+
+    @pytest.mark.parametrize("penalty, expected", [
+        ("l1", {"l1_ratio": 1.0}),
+        ("l2", {"l1_ratio": 0.0}),
+        ("elasticnet", {"l1_ratio": 0.3}),
+        ("none", {}),
+    ])
+    def test_l1_ratio_api(self, penalty, expected):
+        assert _penalty_kwargs(penalty, 0.3, via_l1_ratio=True) == expected
+
+    @pytest.mark.parametrize("penalty, expected", [
+        ("l1", {"penalty": "l1"}),
+        ("l2", {"penalty": "l2"}),
+        ("elasticnet", {"penalty": "elasticnet", "l1_ratio": 0.3}),
+        ("none", {}),
+    ])
+    def test_legacy_penalty_api(self, penalty, expected):
+        assert _penalty_kwargs(penalty, 0.3, via_l1_ratio=False) == expected
+
+    @pytest.mark.parametrize("version, expected", [
+        ("1.7.2", (1, 7)), ("1.8.0", (1, 8)), ("1.10.0.dev0", (1, 10)),
+        ("garbage", (0, 0)),
+    ])
+    def test_version_parsing(self, version, expected):
+        assert _sklearn_version(version) == expected
+
+    def test_l1_penalty_really_sparsifies(self, sample_config):
+        """Behavioural check on the installed scikit-learn version."""
+        rng = np.random.default_rng(0)
+        X = rng.normal(size=(200, 30))
+        y = (X[:, 0] + X[:, 1] > 0).astype(int)
+        reg = sample_config["model"]["regularization"]
+        reg.update({"solver": "liblinear", "C": 0.05})
+
+        reg["penalty"] = "l1"
+        l1_zeros = int((train_model(X, y, sample_config).coef_ == 0).sum())
+        reg["penalty"] = "l2"
+        l2_zeros = int((train_model(X, y, sample_config).coef_ == 0).sum())
+
+        assert l1_zeros >= 10  # 28 of 30 noise features dropped
+        assert l2_zeros == 0
 
 
 # ============================================================================

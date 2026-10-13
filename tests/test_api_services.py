@@ -152,6 +152,38 @@ class TestModelServiceLoad:
         assert "Model bundle not found" in str(exc_info.value)
         assert "/nonexistent" in str(exc_info.value)
 
+    def test_load_checks_its_own_path(self, tmp_path, mock_load_model):
+        """
+        Regression: load() checked the configured MODEL_PATH instead of the
+        path passed to the constructor, so a service for another bundle
+        (dashboard model selection) failed or loaded blindly.
+        """
+        bundle = tmp_path / "custom.joblib"
+        bundle.write_bytes(b"")  # load_model itself is mocked
+        service = ModelService(model_path=str(bundle))
+        service.load()
+        assert service.is_loaded
+        mock_load_model.assert_called_once_with(str(bundle))
+
+        missing = ModelService(model_path=str(tmp_path / "missing.joblib"))
+        with pytest.raises(FileNotFoundError, match="missing.joblib"):
+            missing.load()
+
+    def test_model_path_resolved_against_project_root(
+        self, monkeypatch, tmp_path
+    ):
+        """Relative MODEL_PATH must not depend on the working directory."""
+        from src.api import config
+
+        monkeypatch.setattr(config, "MODEL_PATH", "artifacts/x.joblib")
+        assert config.get_model_path() == (
+            config.PROJECT_ROOT / "artifacts" / "x.joblib"
+        )
+
+        absolute = tmp_path / "y.joblib"
+        monkeypatch.setattr(config, "MODEL_PATH", str(absolute))
+        assert config.get_model_path() == absolute
+
     def test_load_builds_class_names(
             self, mock_load_model, mock_is_model_available
     ):
@@ -434,7 +466,6 @@ class TestPredictSingleAsync:
         assert response.predicted_class == "positive"
         mock_predict_sentiment.assert_called_once()
 
-    @pytest.mark.asyncio
     @pytest.mark.asyncio
     async def test_timeout_raises_504(
         self,

@@ -268,3 +268,36 @@ def test_train_script_with_mlp(
 
     with open(output_dir / "config_used.yaml", encoding="utf-8") as f:
         assert yaml.safe_load(f)["model"]["type"] == "mlp"
+
+
+@pytest.mark.integration
+def test_reporting_switches_respected(project_root, noisy_dataset, tmp_path):
+    """
+    Regression: train.py passed only the reporting section to
+    compute_comprehensive_metrics, which reads evaluation.reporting, so
+    include_confusion_matrix / include_classification_report were ignored.
+    """
+    config_path, _ = noisy_dataset
+    cfg = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    cfg["evaluation"]["reporting"].update(
+        include_confusion_matrix=False, include_classification_report=False
+    )
+    config_path.write_text(yaml.safe_dump(cfg), encoding="utf-8")
+
+    output_dir = tmp_path / "reporting"
+    assert _run_train(project_root, config_path, output_dir) == 0
+
+    with open(output_dir / "metrics.json", encoding="utf-8") as f:
+        metrics = json.load(f)
+    assert "accuracy" in metrics
+    assert "confusion_matrix" not in metrics
+    assert "classification_report" not in metrics
+
+
+def test_relative_paths_resolved_against_project_root(project_root, tmp_path):
+    """--output-dir/--config do not depend on the working directory."""
+    train = _load_train_module(project_root)
+    assert train.resolve_path("artifacts/run") == (
+        project_root / "artifacts" / "run"
+    )
+    assert train.resolve_path(tmp_path) == tmp_path

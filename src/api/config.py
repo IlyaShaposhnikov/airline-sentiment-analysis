@@ -179,6 +179,9 @@ MIN_EXPLAIN_COUNT = _get_config_value(
 MAX_EXPLAIN_COUNT = _get_config_value(
     "serving", "api", "limits", "max_explain_count", default=20, cast_type=int
 )
+# Words returned when a request sets explain=true without n_explain
+# (same default as the CLI and the dashboard), kept inside the limits
+DEFAULT_EXPLAIN_COUNT = min(max(5, MIN_EXPLAIN_COUNT), MAX_EXPLAIN_COUNT)
 
 # ============================================================================
 # Logging configuration
@@ -200,10 +203,15 @@ def get_model_path() -> Path:
     """
     Get the configured model path as a Path object.
 
+    Relative paths are resolved against the project root (like
+    ``--config`` in the scripts), so the API and the dashboard find the
+    bundle regardless of the working directory.
+
     Returns:
-        Absolute or relative Path to model bundle
+        Absolute Path to the model bundle
     """
-    return Path(MODEL_PATH)
+    path = Path(MODEL_PATH)
+    return path if path.is_absolute() else PROJECT_ROOT / path
 
 
 def is_model_available() -> bool:

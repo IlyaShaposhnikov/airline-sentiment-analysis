@@ -22,6 +22,7 @@ from src.api.models import (
     ErrorResponse,
 )
 from src.api.config import (
+    DEFAULT_EXPLAIN_COUNT,
     MAX_TEXT_LENGTH,
     MAX_BATCH_SIZE,
     MIN_EXPLAIN_COUNT,
@@ -172,7 +173,8 @@ class TestPredictionRequest:
         assert req.text == "Great flight!"
         assert req.explain is False  # Default value
         assert req.use_shap is False  # Default value
-        assert req.n_explain == MIN_EXPLAIN_COUNT  # Default value
+        # Same default as the CLI/dashboard, not the minimum (1 word)
+        assert req.n_explain == DEFAULT_EXPLAIN_COUNT == 5
 
     def test_text_length_validation(self):
         """

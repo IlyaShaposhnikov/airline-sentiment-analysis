@@ -61,50 +61,9 @@ def tweet_test_cases() -> List[Tuple[str, str]]:
     ]
 
 
-@pytest.fixture(scope="session")
-def edge_case_tweets() -> List[str]:
-    """
-    Additional edge cases for robustness testing.
-
-    These test boundary conditions that may not have specific expected outputs,
-    but should not cause crashes or unexpected behavior.
-    """
-    return [
-        "!!!",  # Only punctuation
-        "12345",  # Only numbers
-        "🎉🎊🎈",  # Only emojis
-        "café naïve résumé",  # Unicode with accents
-        "test\nwith\tnewlines",  # Whitespace characters
-        "a" * 10_000,  # Very long text (stress test)
-        "@user@user@user",  # Multiple mentions
-        "http://example.com https://t.co/abc www.test.com",  # Multiple URLs
-    ]
-
-
 # ============================================================================
-# Integration test fixtures
+# Shared helpers
 # ============================================================================
-
-
-@pytest.fixture(scope="session")
-def model_bundle_path(project_root: Path) -> Path:
-    """Path to the trained model bundle."""
-    return project_root / "artifacts" / "model_bundle.joblib"
-
-
-@pytest.fixture(scope="session")
-def trained_model(model_bundle_path: Path):
-    """
-    Load trained model for integration tests.
-
-    Skips test if model bundle not found (useful for CI environments).
-    """
-    from src.models import load_model
-
-    if not model_bundle_path.exists():
-        pytest.skip(f"Model bundle not found: {model_bundle_path}")
-
-    return load_model(model_bundle_path)
 
 
 @pytest.fixture
