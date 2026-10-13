@@ -1,0 +1,25 @@
+# Hosted demo (Streamlit Community Cloud): dashboard only, CPU inference.
+# Versions match the environment the demo models were trained in: the
+# bundles are pickles, so scikit-learn/numpy must be compatible.
+# Local development uses the requirements files in the project root.
+
+# CPU-only torch: the default PyPI build pulls multi-GB CUDA libraries
+--find-links https://download.pytorch.org/whl/torch/
+torch==2.14.1+cpu
+sentence-transformers==6.1.0
+transformers==5.19.0
+
+scikit-learn==1.8.0
+numpy==2.4.4
+scipy
+pandas
+joblib
+pyyaml
+
+streamlit==1.57.0
+matplotlib
+requests
+
+# The dashboard reuses the API service layer (no server is started)
+fastapi
+pydantic

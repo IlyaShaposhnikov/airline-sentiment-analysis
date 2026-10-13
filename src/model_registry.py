@@ -5,14 +5,26 @@ Discovery of trained model bundles (used by the dashboard).
 every ``model_bundle.joblib``. Listing models reads only those small files,
 so it is instant and loads neither the bundles nor torch.
 """
+from collections.abc import Mapping
 from dataclasses import dataclass
 import json
+import os
 from pathlib import Path
 
 import yaml
 
 BUNDLE_FILENAME = "model_bundle.joblib"
 DEFAULT_BUNDLE_NAME = "default"
+
+# Where the dashboard looks for models (relative to the project root):
+# local training runs first, then the small committed demo set used by the
+# hosted demo (Streamlit Community Cloud has no artifacts/)
+ARTIFACTS_DIRNAME = "artifacts"
+DEMO_MODELS_DIRNAME = "demo/models"
+MODELS_DIR_ENV = "DASHBOARD_MODELS_DIR"
+
+# Preferred initial selection when MODEL_PATH is not among the bundles
+FALLBACK_NAMES = (DEFAULT_BUNDLE_NAME, "tfidf_lr")
 
 VECTORIZER_LABELS = {
     "tfidf": "TF-IDF",
@@ -148,17 +160,50 @@ def discover_bundles(artifacts_dir: str | Path) -> list[BundleInfo]:
 
 
 def default_bundle_index(
-    bundles: list[BundleInfo], preferred: str | Path
+    bundles: list[BundleInfo],
+    preferred: str | Path,
+    fallback_names: tuple[str, ...] = FALLBACK_NAMES,
 ) -> int:
-    """Index of ``preferred`` (e.g. MODEL_PATH) in ``bundles``, else 0."""
+    """
+    Index of the bundle to select first.
+
+    ``preferred`` (e.g. MODEL_PATH) if present, else the first bundle named
+    in ``fallback_names`` (the fast, explainable TF-IDF + LogReg), else 0.
+    """
     try:
         preferred = Path(preferred).resolve()
     except OSError:
-        return 0
+        preferred = None
     for i, bundle in enumerate(bundles):
         try:
-            if bundle.path.resolve() == preferred:
+            if preferred is not None and bundle.path.resolve() == preferred:
                 return i
         except OSError:
             continue
+    names = [b.name for b in bundles]
+    for name in fallback_names:
+        if name in names:
+            return names.index(name)
     return 0
+
+
+def choose_models_dir(
+    project_root: str | Path, env: Mapping[str, str] | None = None
+) -> Path:
+    """
+    Directory the dashboard lists models from.
+
+    1. ``DASHBOARD_MODELS_DIR`` if set (relative to the project root);
+    2. ``artifacts/`` if it contains at least one bundle (local training);
+    3. ``demo/models/`` (committed demo set, used by the hosted demo).
+    """
+    project_root = Path(project_root)
+    env = os.environ if env is None else env
+    override = env.get(MODELS_DIR_ENV)
+    if override:
+        path = Path(override)
+        return path if path.is_absolute() else project_root / path
+    artifacts = project_root / ARTIFACTS_DIRNAME
+    if discover_bundles(artifacts):
+        return artifacts
+    return project_root / DEMO_MODELS_DIRNAME

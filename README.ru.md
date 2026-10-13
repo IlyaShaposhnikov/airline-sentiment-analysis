@@ -92,6 +92,7 @@ airline-sentiment-analysis/
 ├── data/
 │   ├── Tweets.csv               # Исходный датасет (загружается пользователем)
 │   └── DATA_GUIDE.md            # Документация датасета
+├── demo/                        # Онлайн-демо: точка входа streamlit_app.py, облегчённый requirements.txt, models/ (экспортированные запуски)
 ├── docs/images/                 # Визуализации результатов модели (multiclass/binary)
 ├── src/
 │   ├── __init__.py              # Предзагрузка torch только на Windows (смягчение нативного падения, см. «Решение проблем»)
@@ -115,7 +116,8 @@ airline-sentiment-analysis/
 ├── scripts/
 │   ├── train.py                 # CLI-пайплайн обучения
 │   ├── predict.py               # CLI-инференс и пакетный экспорт
-│   └── compare.py               # Сравнение TF-IDF/эмбеддинги x LogReg/MLP на нескольких seed
+│   ├── compare.py               # Сравнение TF-IDF/эмбеддинги x LogReg/MLP на нескольких seed
+│   └── export_demo.py           # Копирует обученные запуски в demo/models/ для онлайн-демо
 ├── tests/
 │   ├── conftest.py              # Общие фикстуры pytest, маркеры, глобальная конфигурация тестов
 │   ├── test_torch_models.py     # Обучение MLP, ранняя остановка, сохранение, пайплайн и API
@@ -123,7 +125,8 @@ airline-sentiment-analysis/
 │   ├── test_shap_values.py      # SHAP-значения сопоставляются нужным словам и классу при любом формате вывода shap
 │   ├── test_api_model_info.py   # Метаданные модели в ModelService и /health
 │   ├── test_api_main.py         # Уровень логов API из конфига/окружения, обработчик 422 без устаревших констант
-│   ├── test_model_registry.py   # Поиск и подписи моделей, общий энкодер для нескольких моделей
+│   ├── test_model_registry.py   # Поиск и подписи моделей, выбор папки с моделями, общий энкодер
+│   ├── test_export_demo.py      # Экспорт демо: копирование и переименование запусков, проверка до перезаписи
 │   ├── test_compare.py          # Скрипт сравнения: выходные файлы, кэш эмбеддингов, бинарный режим
 │   ├── test_metrics.py          # Определения метрик (macro F1 в бинарном режиме)
 │   ├── test_runtime.py          # Обход конфликта OpenMP torch/scikit-learn на Windows и порядок импортов
@@ -207,6 +210,13 @@ streamlit run src/dashboard.py
 Интерфейс откроется по адресу: http://localhost:8501
 
 В боковой панели — все модели из `artifacts/` (`artifacts/model_bundle.joblib` и `artifacts/<run>/model_bundle.joblib`, подписи берутся из `config_used.yaml` и `metrics.json` этого запуска); вкладка **Compare Models** прогоняет один текст через несколько моделей. Каждая модель загружается один раз и кэшируется; модели с одинаковым энкодером эмбеддингов используют один его экземпляр. REST API по-прежнему обслуживает одну модель (`MODEL_PATH`).
+
+### 6. Онлайн-демо (Streamlit Community Cloud)
+Та же панель управления работает онлайн из `demo/`: `artifacts/` не хранится в репозитории, поэтому панель берёт модели из небольшого закоммиченного набора `demo/models/` (шесть запусков, ~1.3 МБ; выбор папки можно переопределить через `DASHBOARD_MODELS_DIR`).
+```bash
+python scripts/export_demo.py   # скопировать запуски из artifacts/ в demo/models/
+```
+Настройки деплоя: main file `demo/streamlit_app.py`, Python 3.12. Streamlit Community Cloud устанавливает `demo/requirements.txt` (только панель управления, torch для CPU, версии закреплены под сохранённые модели). Первое предсказание моделью на эмбеддингах скачивает энкодер на 90 МБ; «уснувшее» приложение просыпается минуту-две.
 
 ## Конфигурация
 

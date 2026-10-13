@@ -13,6 +13,7 @@ import yaml
 
 from src.model_registry import (
     BundleInfo,
+    choose_models_dir,
     default_bundle_index,
     discover_bundles,
 )
@@ -109,6 +110,17 @@ class TestDiscoverBundles:
         )
         assert default_bundle_index(bundles, artifacts / "missing") == 0
 
+    def test_default_index_prefers_tfidf_lr_without_model_path(
+        self, tmp_path
+    ):
+        """Demo set: no top-level bundle, start on the fast TF-IDF model."""
+        demo = tmp_path / "models"
+        for name in ["embedding_lr", "tfidf_lr", "tfidf_mlp"]:
+            _make_run(demo / name)
+        bundles = discover_bundles(demo)
+        index = default_bundle_index(bundles, tmp_path / "missing.joblib")
+        assert bundles[index].name == "tfidf_lr"
+
     def test_label_without_metrics(self):
         info = BundleInfo(
             path=Path("x"), name="run", model_type="mlp",
@@ -189,3 +201,31 @@ class TestSharedEncoder:
         _load(second_bundle, None)
 
         assert fake_encoder.loads["count"] == 2
+
+
+class TestChooseModelsDir:
+
+    def test_artifacts_with_bundles_win(self, tmp_path):
+        _make_run(tmp_path / "artifacts" / "run")
+        _make_run(tmp_path / "demo" / "models" / "tfidf_lr")
+        assert choose_models_dir(tmp_path, env={}) == tmp_path / "artifacts"
+
+    def test_demo_set_when_artifacts_empty_or_missing(self, tmp_path):
+        """Hosted demo: artifacts/ is git-ignored, so it does not exist."""
+        assert choose_models_dir(tmp_path, env={}) == (
+            tmp_path / "demo" / "models"
+        )
+        (tmp_path / "artifacts" / "compare").mkdir(parents=True)
+        assert choose_models_dir(tmp_path, env={}) == (
+            tmp_path / "demo" / "models"
+        )
+
+    def test_env_override(self, tmp_path):
+        _make_run(tmp_path / "artifacts" / "run")
+        env = {"DASHBOARD_MODELS_DIR": "demo/models"}
+        assert choose_models_dir(tmp_path, env=env) == (
+            tmp_path / "demo" / "models"
+        )
+        absolute = tmp_path / "elsewhere"
+        env = {"DASHBOARD_MODELS_DIR": str(absolute)}
+        assert choose_models_dir(tmp_path, env=env) == absolute

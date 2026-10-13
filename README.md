@@ -92,6 +92,7 @@ airline-sentiment-analysis/
 ├── data/
 │   ├── Tweets.csv               # Raw dataset (downloaded by user)
 │   └── DATA_GUIDE.md            # Dataset documentation
+├── demo/                        # Hosted demo: streamlit_app.py entry point, lean requirements.txt, models/ (exported runs)
 ├── docs/images/                 # Model performance visualizations (multiclass/binary)
 ├── src/
 │   ├── __init__.py              # Windows-only torch preload (mitigation for a native crash, see Troubleshooting)
@@ -115,7 +116,8 @@ airline-sentiment-analysis/
 ├── scripts/
 │   ├── train.py                 # CLI training pipeline
 │   ├── predict.py               # CLI inference & batch export
-│   └── compare.py               # TF-IDF/embeddings x LogReg/MLP comparison over several seeds
+│   ├── compare.py               # TF-IDF/embeddings x LogReg/MLP comparison over several seeds
+│   └── export_demo.py           # Copies trained runs into demo/models/ for the hosted demo
 ├── tests/
 │   ├── conftest.py              # Shared pytest fixtures, markers, and global test configuration
 │   ├── test_torch_models.py     # MLP training, early stopping, persistence, pipeline & API
@@ -123,7 +125,8 @@ airline-sentiment-analysis/
 │   ├── test_shap_values.py      # SHAP values mapped to the right words/class for every shap output format
 │   ├── test_api_model_info.py   # Model metadata in ModelService and /health
 │   ├── test_api_main.py         # API log level from config/env, 422 handler without deprecated constants
-│   ├── test_model_registry.py   # Bundle discovery/labels and one shared encoder for several models
+│   ├── test_model_registry.py   # Bundle discovery/labels, models directory choice, one shared encoder
+│   ├── test_export_demo.py      # Demo export: copy/rename runs, validation before overwriting
 │   ├── test_compare.py          # Comparison script: outputs, embedding cache, binary mode
 │   ├── test_metrics.py          # Metric definitions (macro F1 in binary mode)
 │   ├── test_runtime.py          # Windows torch/scikit-learn OpenMP workaround and import order
@@ -207,6 +210,13 @@ streamlit run src/dashboard.py
 UI opens at: http://localhost:8501
 
 The sidebar lists every bundle in `artifacts/` (`artifacts/model_bundle.joblib` and `artifacts/<run>/model_bundle.joblib`, labelled from the run's `config_used.yaml` and `metrics.json`); the **Compare Models** tab runs the same text through several of them. Each model is loaded once and cached; bundles with the same embedding model share one encoder. The REST API still serves a single model (`MODEL_PATH`).
+
+### 6. Hosted Demo (Streamlit Community Cloud)
+The same dashboard runs online from `demo/`: `artifacts/` is not committed, so the dashboard falls back to the small committed set in `demo/models/` (six runs, ~1.3 MB of bundles; `DASHBOARD_MODELS_DIR` overrides the choice).
+```bash
+python scripts/export_demo.py   # copy the runs from artifacts/ into demo/models/
+```
+Deploy settings: main file `demo/streamlit_app.py`, Python 3.12. Streamlit Community Cloud installs `demo/requirements.txt` (dashboard only, CPU-only torch, versions pinned to match the pickled bundles). The first prediction with an embedding model downloads the 90 MB encoder; a sleeping app takes a minute or two to wake up.
 
 ## Configuration
 

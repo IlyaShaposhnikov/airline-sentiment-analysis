@@ -3,7 +3,8 @@
 Streamlit dashboard for interactive sentiment analysis.
 
 Provides a user-friendly web interface for:
-- Choosing any trained model bundle found in artifacts/
+- Choosing any trained model bundle found in artifacts/ (or, when there is
+  none, in the committed demo set demo/models/ used by the hosted demo)
 - Single text prediction with confidence visualization
 - Optional explanation toggle (top contributing words)
 - Batch prediction via CSV upload/download
@@ -36,6 +37,8 @@ from src.api.services import ModelService  # noqa: E402
 from src.interpretability import SHAP_AVAILABLE  # noqa: E402
 from src.model_registry import (  # noqa: E402
     BundleInfo,
+    DEMO_MODELS_DIRNAME,
+    choose_models_dir,
     default_bundle_index,
     discover_bundles,
 )
@@ -44,7 +47,12 @@ from src.utils.logging_config import setup_logger  # noqa: E402
 # Configure logging (Streamlit captures stdout/stderr)
 logger = setup_logger("dashboard", level="INFO")
 
-ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
+MODELS_DIR = choose_models_dir(PROJECT_ROOT)
+IS_DEMO = MODELS_DIR == PROJECT_ROOT / DEMO_MODELS_DIRNAME
+try:
+    MODELS_DIR_LABEL = MODELS_DIR.relative_to(PROJECT_ROOT).as_posix()
+except ValueError:
+    MODELS_DIR_LABEL = str(MODELS_DIR)
 
 # ============================================================================
 # Initialize session state for explanation settings (persist across reloads)
@@ -116,9 +124,9 @@ def load_hint(info: BundleInfo) -> str:
     return "Retrain it with `python scripts/train.py`."
 
 
-bundles = discover_bundles(ARTIFACTS_DIR)
+bundles = discover_bundles(MODELS_DIR)
 if not bundles:
-    st.error(f"❌ No trained models found in `{ARTIFACTS_DIR}`")
+    st.error(f"❌ No trained models found in `{MODELS_DIR_LABEL}/`")
     st.info(
         "💡 Run `python scripts/train.py` first to train and save a model"
     )
@@ -151,11 +159,18 @@ with st.sidebar:
         format_func=bundle_label,
         key="model_path",
         help=(
-            "Trained bundles found in artifacts/. F1 is the macro F1 on the "
-            "test split of that run (binary runs exclude neutral tweets)."
+            f"Trained bundles found in {MODELS_DIR_LABEL}/. F1 is the macro "
+            "F1 on the test split of that run (binary runs exclude neutral "
+            "tweets)."
         ),
     )
     selected = bundle_by_path[selected_path]
+    if IS_DEMO:
+        st.caption(
+            "🌐 Demo models (`demo/models/`), trained offline with "
+            "`scripts/train.py`. Embedding models download a 90 MB encoder "
+            "on first use."
+        )
 
 try:
     service = get_service(selected_path)
@@ -725,7 +740,7 @@ with tab_info:
 
     This interactive dashboard allows you to:
 
-    1. 🧠 **Choose a model** — any bundle trained into `artifacts/`
+    1. 🧠 **Choose a model** — any bundle in `{MODELS_DIR_LABEL}/`
     2. 🔍 **Predict sentiment** for individual airline tweets
     3. 📦 **Batch process** CSV files with multiple tweets
     4. 🔍 **Explore explanations** — which words influenced the prediction
@@ -750,7 +765,7 @@ with tab_info:
     | Component | Value |
     |-----------|-------|
     | Framework | Streamlit {st.__version__} |
-    | Models found | {len(bundles)} in `artifacts/` |
+    | Models found | {len(bundles)} in `{MODELS_DIR_LABEL}/` |
     | SHAP Support | {"✅ Yes" if SHAP_AVAILABLE else "❌ No"} |
     | Max Text Length | {MAX_TEXT_LENGTH} characters |
     | Max Batch Size | {MAX_BATCH_SIZE} texts |
