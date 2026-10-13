@@ -3,10 +3,11 @@
 Streamlit dashboard for interactive sentiment analysis.
 
 Provides a user-friendly web interface for:
+- Choosing any trained model bundle found in artifacts/
 - Single text prediction with confidence visualization
 - Optional explanation toggle (top contributing words)
 - Batch prediction via CSV upload/download
-- Model status indicator
+- Side-by-side comparison of several models on the same text
 
 Usage:
     streamlit run src/dashboard.py
@@ -14,6 +15,7 @@ Usage:
 from datetime import datetime
 from pathlib import Path
 import sys
+import time
 
 import pandas as pd
 import streamlit as st
@@ -26,38 +28,39 @@ from src.api.config import (  # noqa: E402
     API_TITLE,
     API_VERSION,
     MAX_BATCH_SIZE,
-    MODEL_PATH,
+    MAX_EXPLAIN_COUNT,
+    MAX_TEXT_LENGTH,
     get_model_path,
 )
-from src.api.services import model_service  # noqa: E402
+from src.api.services import ModelService  # noqa: E402
 from src.interpretability import SHAP_AVAILABLE  # noqa: E402
+from src.model_registry import (  # noqa: E402
+    BundleInfo,
+    default_bundle_index,
+    discover_bundles,
+)
 from src.utils.logging_config import setup_logger  # noqa: E402
 
 # Configure logging (Streamlit captures stdout/stderr)
 logger = setup_logger("dashboard", level="INFO")
+
+ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 
 # ============================================================================
 # Initialize session state for explanation settings (persist across reloads)
 # ============================================================================
 
 # Session state keys persist user settings across Streamlit reruns
-if "single_explain" not in st.session_state:
-    st.session_state.single_explain = False
-
-if "single_shap" not in st.session_state:
-    st.session_state.single_shap = False
-
-if "single_n_explain" not in st.session_state:
-    st.session_state.single_n_explain = 5
-
-if "batch_explain" not in st.session_state:
-    st.session_state.batch_explain = False
-
-if "batch_shap" not in st.session_state:
-    st.session_state.batch_shap = False
-
-if "batch_n_explain" not in st.session_state:
-    st.session_state.batch_n_explain = 5
+for key, default in {
+    "single_explain": False,
+    "single_shap": False,
+    "single_n_explain": 5,
+    "batch_explain": False,
+    "batch_shap": False,
+    "batch_n_explain": 5,
+}.items():
+    if key not in st.session_state:
+        st.session_state[key] = default
 
 # ============================================================================
 # Page configuration
@@ -70,117 +73,170 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ============================================================================
-# Header & status
-# ============================================================================
-
 st.title(f"✈️ {API_TITLE}")
 st.caption(
     f"Version {API_VERSION} — Interactive sentiment analysis "
     "for airline tweets"
 )
 
+# ============================================================================
+# Model loading (cached per bundle; shared sentence-embedding encoders)
+# ============================================================================
 
-# Cached function avoids repeated model checks on every rerun
-@st.cache_resource
-def check_model_status() -> dict:
-    """
-    Check if model is available and loaded (cached to avoid repeated checks).
 
-    Returns:
-        Dict with model status: path, exists, loaded, shap_available,
-        model_type, vectorizer_type, explanations_supported, error
+@st.cache_resource(show_spinner=False)
+def shared_encoders() -> dict:
+    """One loaded encoder per embedding model, shared by all bundles."""
+    return {}
+
+
+@st.cache_resource(show_spinner="Loading model...")
+def get_service(bundle_path: str) -> ModelService:
     """
-    status = {
-        "model_path": MODEL_PATH,
-        "exists": get_model_path().exists(),
-        "loaded": False,
-        "shap_available": SHAP_AVAILABLE,
-        "model_type": None,
-        "vectorizer_type": None,
-        "explanations_supported": False,
-        "error": None,
-    }
-    try:
-        model_service.load()
-        status["loaded"] = True
-        status.update(model_service.model_info)
-        status["explanations_supported"] = (
-            model_service.explanations_supported
+    Load a bundle once per dashboard process (cached by path).
+
+    Failures are not cached: the next rerun tries again.
+    """
+    service = ModelService(
+        model_path=bundle_path, encoder_cache=shared_encoders()
+    )
+    service.load()
+    return service
+
+
+def load_hint(info: BundleInfo) -> str:
+    """Actionable hint for a bundle that failed to load."""
+    if info.needs_deep_learning:
+        return (
+            "This model needs the optional deep-learning dependencies: "
+            "`pip install torch --index-url "
+            "https://download.pytorch.org/whl/cpu` and "
+            "`pip install -r requirements-dl.txt`."
         )
-    except Exception as e:
-        status["error"] = str(e)
-    return status
+    return "Retrain it with `python scripts/train.py`."
 
 
-model_status = check_model_status()
+bundles = discover_bundles(ARTIFACTS_DIR)
+if not bundles:
+    st.error(f"❌ No trained models found in `{ARTIFACTS_DIR}`")
+    st.info(
+        "💡 Run `python scripts/train.py` first to train and save a model"
+    )
+    st.stop()
+
+bundle_by_path = {str(b.path): b for b in bundles}
+bundle_paths = list(bundle_by_path)
+
+
+def bundle_label(path: str) -> str:
+    return bundle_by_path[path].label
+
+
+# ============================================================================
+# Sidebar: model selection & info
+# ============================================================================
+
+with st.sidebar:
+    st.header("⚙️ Settings")
+
+    st.subheader("Model")
+    # Default: the bundle the API serves (MODEL_PATH)
+    if st.session_state.get("model_path") not in bundle_by_path:
+        st.session_state.model_path = bundle_paths[
+            default_bundle_index(bundles, get_model_path())
+        ]
+    selected_path = st.selectbox(
+        "Model bundle",
+        bundle_paths,
+        format_func=bundle_label,
+        key="model_path",
+        help=(
+            "Trained bundles found in artifacts/. F1 is the macro F1 on the "
+            "test split of that run (binary runs exclude neutral tweets)."
+        ),
+    )
+    selected = bundle_by_path[selected_path]
+
+try:
+    service = get_service(selected_path)
+    load_error = None
+except Exception as e:  # missing optional deps, corrupt file, ...
+    service = None
+    load_error = f"{type(e).__name__}: {e}"
+    logger.error(f"Dashboard failed to load {selected_path}: {load_error}")
+
+MODEL_READY = service is not None
 
 # Word-level explanations need TF-IDF features and a linear model;
 # embedding / MLP bundles predict normally but cannot explain
-EXPLAIN_OK = model_status["explanations_supported"]
+EXPLAIN_OK = bool(service and service.explanations_supported)
 EXPLAIN_HELP = (
     None if EXPLAIN_OK else
     "Not available for this model: word-level explanations require "
     "TF-IDF features and a linear model (logistic regression)."
 )
 
-# Visual status banner: success/warning/error based on model availability
-if model_status["loaded"]:
-    st.success("✅ Model loaded and ready")
-elif model_status["exists"]:
-    st.warning("⚠️ Model file found — loading on first prediction")
+# Visual status banner
+if MODEL_READY:
+    st.success(f"✅ Model loaded: {selected.label}")
 else:
-    st.error(f"❌ Model not found at: {model_status['model_path']}")
-    st.info(
-        "💡 Run `python scripts/train.py` first to train and save the model"
-    )
+    st.error(f"❌ Could not load `{selected.name}`: {load_error}")
+    st.info(f"💡 {load_hint(selected)}")
 
-# Sidebar: info & settings
 with st.sidebar:
-    st.header("⚙️ Settings")
-
-    st.subheader("Model Info")
-    st.code(f"Path: {model_status['model_path']}", language="text")
-    st.metric("Loaded", "Yes" if model_status["loaded"] else "No")
-    if model_status["model_type"]:
+    try:
+        shown_path = selected.path.relative_to(PROJECT_ROOT)
+    except ValueError:
+        shown_path = selected.path
+    st.code(f"Path: {shown_path.as_posix()}", language="text")
+    if MODEL_READY:
+        info = service.model_info
         st.caption(
-            f"Model: **{model_status['model_type']}** + "
-            f"**{model_status['vectorizer_type']}**"
+            f"Classes: **{', '.join(service._class_names)}**  \n"
+            f"Classifier: `{info['model_type']}`  \n"
+            f"Features: `{info['vectorizer_type']}`"
         )
         if not EXPLAIN_OK:
             st.caption("ℹ️ Explanations are not available for this model")
+    if selected.accuracy is not None:
+        st.metric("Test accuracy", f"{selected.accuracy:.3f}")
+
     shap_status = "Installed" if SHAP_AVAILABLE else "Not installed"
     st.metric("SHAP Library", shap_status)
     if SHAP_AVAILABLE:
         st.caption(
             "ℹ️ SHAP explanations may use zero baseline without training data"
         )
-    st.metric("Model Version", API_VERSION)
 
     st.divider()
 
     st.subheader("Quick Tips")
     st.markdown("""
+    - 🧠 Pick a model above; each one is loaded once and cached
     - ✍️ Enter a tweet to see sentiment prediction
-    - 🔍 Toggle "Explain" to see top contributing words
+    - 🔍 Toggle "Explain" to see top contributing words (TF-IDF + LogReg)
     - 📁 Upload CSV for batch prediction
-    - 📊 Probabilities shown as horizontal bar chart
+    - ⚖️ Compare all models on the same text in the last tab
     """)
 
     st.divider()
 
-    # Reload button: clears cache and forces re-check of model status
-    if st.button("🔄 Reload Model"):
-        check_model_status.clear()
+    # Reload: forget loaded models (e.g. after retraining) and rescan
+    if st.button("🔄 Reload models"):
+        get_service.clear()
+        shared_encoders.clear()
         st.rerun()
 
 # ============================================================================
-# Tabbed interface: Single / Batch / Info
+# Tabbed interface: Single / Batch / Compare / Info
 # ============================================================================
 
-tab_single, tab_batch, tab_info = st.tabs(
-    ["🔍 Single Prediction", "📦 Batch Prediction", "ℹ️ About"]
-)
+tab_single, tab_batch, tab_compare, tab_info = st.tabs([
+    "🔍 Single Prediction",
+    "📦 Batch Prediction",
+    "⚖️ Compare Models",
+    "ℹ️ About",
+])
 
 # ---------------------------------------------------------------------------
 # Tab 1: Single text prediction
@@ -212,7 +268,7 @@ with tab_single:
     n_explain = st.slider(
         "Number of top words to show",
         min_value=1,
-        max_value=20,
+        max_value=MAX_EXPLAIN_COUNT,
         disabled=not explain_toggle,
         key="single_n_explain"
     )
@@ -223,30 +279,25 @@ with tab_single:
             "Enter tweet text",
             height=100,
             placeholder="@VirginAmerica Great flight, excellent service!",
-            max_chars=1000,
+            max_chars=MAX_TEXT_LENGTH,
             key="single_text_input"
         )
 
         submitted = st.form_submit_button(
-            "🚀 Predict", type="primary", disabled=not model_status["exists"]
+            "🚀 Predict", type="primary", disabled=not MODEL_READY
         )
 
     # Process prediction only on form submit with non-empty text
     if submitted and text_input.strip():
         with st.spinner("Analyzing sentiment..."):
             try:
-                # Ensure model is loaded (idempotent)
-                model_service.load()
-
-                # Run prediction via service layer (sync wrapper for Streamlit)
-                response = model_service.predict_single_sync(
+                response = service.predict_single_sync(
                     text=text_input.strip(),
                     explain=explain_toggle,
                     use_shap=st.session_state.single_shap and SHAP_AVAILABLE,
                     n_explain=st.session_state.single_n_explain,
                 )
 
-                # Display result
                 st.subheader("📊 Result")
 
                 # Prediction header: sentiment badge + confidence
@@ -285,7 +336,6 @@ with tab_single:
                     st.subheader("🔍 Explanation")
                     st.caption(f"Method: `{response.explanation.method}`")
 
-                    # Top contributors as table
                     contrib_df = pd.DataFrame(
                         response.explanation.top_contributors,
                         columns=["Word", "Contribution"]
@@ -316,8 +366,8 @@ with tab_single:
                     st.json(response.model_dump(mode='json'), expanded=False)
 
                 logger.info(
-                    f"Dashboard prediction: '{text_input[:50]}...' "
-                    f"→ {response.predicted_class}"
+                    f"Dashboard prediction [{selected.name}]: "
+                    f"'{text_input[:50]}...' → {response.predicted_class}"
                 )
 
             except Exception as e:
@@ -334,8 +384,9 @@ with tab_single:
 with tab_batch:
     st.header("Predict sentiment for multiple tweets")
 
-    st.markdown("""
-    **Upload a CSV file** with a `text` column containing tweets.
+    st.markdown(f"""
+    **Upload a CSV file** with a `text` column containing tweets
+    (up to {MAX_BATCH_SIZE} rows). Uses the model selected in the sidebar.
 
     Example format:
     ```csv
@@ -347,7 +398,7 @@ with tab_batch:
     """)
 
     uploaded_file = st.file_uploader(
-        "📁 Choose CSV file", type=["csv"], disabled=not model_status["exists"]
+        "📁 Choose CSV file", type=["csv"], disabled=not MODEL_READY
     )
 
     if uploaded_file:
@@ -370,7 +421,6 @@ with tab_batch:
             else:
                 st.success(f"✅ Loaded {len(df)} rows")
 
-                # Preview uploaded data
                 with st.expander("👀 Preview uploaded data"):
                     st.dataframe(df.head(), width='stretch')
 
@@ -384,7 +434,7 @@ with tab_batch:
                         key="batch_explain"
                     ) and EXPLAIN_OK
                 with col2:
-                    batch_use_shap = st.checkbox(
+                    st.checkbox(
                         "Use SHAP (if available)",
                         disabled=not (SHAP_AVAILABLE and EXPLAIN_OK),
                         key="batch_shap"
@@ -393,12 +443,11 @@ with tab_batch:
                 batch_n_explain = st.slider(
                     "Top words per explanation",
                     min_value=1,
-                    max_value=20,
+                    max_value=MAX_EXPLAIN_COUNT,
                     disabled=not batch_explain,
                     key="batch_n_explain"
                 )
 
-                # Form submission triggers batch processing
                 with st.form("batch_prediction_form"):
                     batch_submitted = st.form_submit_button(
                         "🚀 Run Batch Prediction", type="primary"
@@ -407,10 +456,6 @@ with tab_batch:
                 if batch_submitted:
                     with st.spinner(f"Processing {len(df)} texts..."):
                         try:
-                            model_service.load()
-
-                            # Run predictions sequentially
-                            # with progress tracking
                             texts = df["text"].dropna().astype(str).tolist()
                             results = []
 
@@ -419,7 +464,7 @@ with tab_batch:
 
                             for i, text in enumerate(texts):
                                 try:
-                                    response = model_service.predict_single_sync(  # noqa: E501
+                                    response = service.predict_single_sync(
                                         text=text,
                                         explain=batch_explain,
                                         use_shap=(
@@ -439,7 +484,6 @@ with tab_batch:
                                     )
                                     results.append(None)
 
-                                # Update progress bar and status text
                                 progress_bar.progress((i + 1) / len(texts))
                                 status_text.text(
                                     f"Processed {i + 1}/{len(texts)} texts"
@@ -448,7 +492,6 @@ with tab_batch:
                             status_text.text("✅ Done!")
                             progress_bar.empty()
 
-                            # Report partial failures if any
                             failed_count = sum(1 for r in results if r is None)
                             if failed_count > 0:
                                 st.warning(
@@ -473,6 +516,7 @@ with tab_batch:
                                 row = {
                                     "index": i,
                                     "text": text,
+                                    "model": selected.name,
                                     "predicted_class": resp.predicted_class,
                                     "predicted_class_idx": (
                                         resp.predicted_class_idx
@@ -480,36 +524,33 @@ with tab_batch:
                                     "confidence": resp.confidence,
                                     "timestamp": resp.timestamp.isoformat(),
                                 }
-                                # Add probabilities as separate columns
                                 for label, prob in resp.probabilities.items():
                                     row[f"prob_{label}"] = prob
 
-                                # Add explanation if present
                                 if batch_explain and resp.explanation:
                                     row["explanation_method"] = (
                                         resp.explanation.method
                                     )
+                                    contributors = (
+                                        resp.explanation.top_contributors
+                                    )[:batch_n_explain]
                                     row["top_contributors"] = "; ".join(
-                                        [
-                                            f"{w}({c:+.2f})"
-                                            for w, c
-                                            in resp.explanation.top_contributors[:batch_n_explain]  # noqa: E501
-                                        ]
+                                        f"{w}({c:+.2f})"
+                                        for w, c in contributors
                                     )
 
                                 output_rows.append(row)
 
                             output_df = pd.DataFrame(output_rows)
 
-                            # Display summary metrics
                             st.subheader("📊 Results Summary")
                             col_sum1, col_sum2, col_sum3 = st.columns(3)
                             with col_sum1:
                                 st.metric("Total Processed", len(output_df))
                             with col_sum2:
                                 if "error" in output_df.columns:
-                                    success_count = len(
-                                        output_df[output_df["error"].isna()]
+                                    success_count = int(
+                                        output_df["error"].isna().sum()
                                     )
                                 else:
                                     success_count = len(output_df)
@@ -521,7 +562,6 @@ with tab_batch:
                                     ].mode()[0]
                                     st.metric("Most Common", top_class)
 
-                            # Download buttons for CSV and JSON exports
                             csv_data = output_df.to_csv(
                                 index=False, encoding="utf-8"
                             )
@@ -546,15 +586,14 @@ with tab_batch:
                                 mime="application/json",
                             )
 
-                            # Preview results table
                             with st.expander("👀 Preview results"):
                                 st.dataframe(
                                     output_df.head(), width='stretch'
                                 )
 
                             logger.info(
-                                "Dashboard batch prediction: "
-                                f"{len(texts)} texts processed"
+                                f"Dashboard batch prediction [{selected.name}]"
+                                f": {len(texts)} texts processed"
                             )
 
                         except Exception as e:
@@ -572,7 +611,106 @@ with tab_batch:
             logger.error(f"Dashboard CSV read error: {e}")
 
 # ---------------------------------------------------------------------------
-# Tab 3: About / Info
+# Tab 3: Compare models on one text
+# ---------------------------------------------------------------------------
+
+with tab_compare:
+    st.header("Compare models on the same text")
+    st.caption(
+        "Every selected model predicts the same text. Models are loaded once "
+        "and cached, so the latency column is the cost of one prediction "
+        "(CPU, end-to-end from raw text). Binary models have no neutral "
+        "class."
+    )
+
+    compare_paths = st.multiselect(
+        "Models",
+        bundle_paths,
+        default=bundle_paths,
+        format_func=bundle_label,
+        key="compare_models",
+    )
+
+    with st.form("compare_form"):
+        compare_text = st.text_area(
+            "Enter tweet text",
+            height=100,
+            placeholder="@united Delayed again, but the crew was lovely",
+            max_chars=MAX_TEXT_LENGTH,
+            key="compare_text_input",
+        )
+        compare_submitted = st.form_submit_button(
+            "⚖️ Compare", type="primary", disabled=not compare_paths
+        )
+
+    if compare_submitted and compare_text.strip():
+        rows = []
+        progress = st.progress(0)
+        for i, path in enumerate(compare_paths):
+            info = bundle_by_path[path]
+            row = {"Model": info.name, "Setup": info.description or "—"}
+            try:
+                with st.spinner(f"Loading {info.name}..."):
+                    model_service = get_service(path)
+                start = time.perf_counter()
+                response = model_service.predict_single_sync(
+                    text=compare_text.strip()
+                )
+                row["Latency, ms"] = (time.perf_counter() - start) * 1000
+                row["Prediction"] = response.predicted_class
+                row["Confidence"] = response.confidence
+                for label, prob in response.probabilities.items():
+                    row[f"P({label})"] = prob
+            except Exception as e:
+                row["Error"] = f"{type(e).__name__}: {e}"
+                logger.warning(f"Compare: {info.name} failed: {e}")
+            rows.append(row)
+            progress.progress((i + 1) / len(compare_paths))
+        progress.empty()
+
+        result_df = pd.DataFrame(rows)
+        ordered = ["Model", "Setup", "Prediction", "Confidence"] + [
+            c for c in result_df.columns if c.startswith("P(")
+        ] + ["Latency, ms", "Error"]
+        result_df = result_df[[c for c in ordered if c in result_df.columns]]
+
+        st.dataframe(
+            result_df,
+            hide_index=True,
+            width='stretch',
+            column_config={
+                "Confidence": st.column_config.ProgressColumn(
+                    min_value=0.0, max_value=1.0, format="%.2f"
+                ),
+                "Latency, ms": st.column_config.NumberColumn(format="%.1f"),
+            },
+        )
+
+        if "Error" in result_df.columns:
+            n_failed = int(result_df["Error"].notna().sum())
+            st.warning(
+                f"⚠️ {n_failed} model(s) could not run — see the Error "
+                "column (embedding / MLP models need requirements-dl.txt)"
+            )
+
+        if "Prediction" in result_df.columns:
+            votes = result_df["Prediction"].dropna().value_counts()
+            if len(votes) == 1:
+                st.success(f"All models agree: **{votes.index[0]}**")
+            elif len(votes) > 1:
+                summary = ", ".join(f"{k}: {v}" for k, v in votes.items())
+                st.info(f"Models disagree — {summary}")
+
+        logger.info(
+            f"Dashboard comparison: {len(compare_paths)} models, "
+            f"'{compare_text[:50]}...'"
+        )
+
+    elif compare_submitted:
+        st.warning("⚠️ Please enter some text to analyze")
+
+# ---------------------------------------------------------------------------
+# Tab 4: About / Info
 # ---------------------------------------------------------------------------
 
 with tab_info:
@@ -587,18 +725,23 @@ with tab_info:
 
     This interactive dashboard allows you to:
 
-    1. 🔍 **Predict sentiment** for individual airline tweets
-    2. 📦 **Batch process** CSV files with multiple tweets
-    3. 🔍 **Explore explanations** — see which words influenced the prediction
-    4. 📊 **Visualize probabilities** as interactive bar charts
+    1. 🧠 **Choose a model** — any bundle trained into `artifacts/`
+    2. 🔍 **Predict sentiment** for individual airline tweets
+    3. 📦 **Batch process** CSV files with multiple tweets
+    4. 🔍 **Explore explanations** — which words influenced the prediction
+    5. ⚖️ **Compare models** side by side on the same text
 
     ---
 
     ### How it works
 
-    - Model: Logistic Regression with TF-IDF vectorization
-    - Training: Confidence-aware learning from airline tweet dataset
-    - Interpretation: Model weights (+ optional SHAP values)
+    - Features: TF-IDF or sentence embeddings (Sentence-Transformers)
+    - Classifiers: logistic regression or a PyTorch MLP
+    - Training: confidence-aware learning from the airline tweet dataset
+      (`python scripts/train.py`, see README for the measured comparison)
+    - Interpretation: model weights (+ optional SHAP values) for
+      TF-IDF + logistic regression
+    - Selected model: {selected.label}
 
     ---
 
@@ -607,10 +750,10 @@ with tab_info:
     | Component | Value |
     |-----------|-------|
     | Framework | Streamlit {st.__version__} |
-    | Model Path | `{MODEL_PATH}` |
+    | Models found | {len(bundles)} in `artifacts/` |
     | SHAP Support | {"✅ Yes" if SHAP_AVAILABLE else "❌ No"} |
-    | Max Text Length | 1000 characters |
-    | Max Batch Size | 100 texts |
+    | Max Text Length | {MAX_TEXT_LENGTH} characters |
+    | Max Batch Size | {MAX_BATCH_SIZE} texts |
 
     ---
 
@@ -626,7 +769,9 @@ with tab_info:
     st.info(
         "💡 **API Required:**\n\n"
         "Interactive documentation requires the backend API "
-        "to be running on `http://localhost:8000`.\n\n"
+        "to be running on `http://localhost:8000`. The API serves one "
+        "model (`MODEL_PATH`); the dashboard can switch between all of "
+        "them.\n\n"
         "Open a new terminal and execute:\n"
         "```\nuvicorn src.api.main:app --host 0.0.0.0 --port 8000 --reload\n```"  # noqa: E501
     )
@@ -654,7 +799,6 @@ with tab_info:
     ) — Training data
     """)
 
-    # Footer
     st.divider()
     st.caption(
         "Built with ❤️ using Streamlit • "
@@ -666,9 +810,4 @@ with tab_info:
 # ============================================================================
 
 st.divider()
-col_f1, col_f2 = st.columns([3, 1])
-with col_f1:
-    st.caption("💡 Tip: Use the sidebar to reload the model or check status")
-with col_f2:
-    if st.button("⬆️ Scroll to Top"):
-        st.rerun()  # Simple way to "scroll" by refreshing
+st.caption("💡 Tip: Use the sidebar to switch or reload models")

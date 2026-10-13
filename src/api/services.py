@@ -52,8 +52,22 @@ class ModelService:
     # Configurable timeout for prediction operations (seconds)
     PREDICTION_TIMEOUT_SEC = 30.0
 
-    def __init__(self, model_path: str | None = None):
+    def __init__(
+        self,
+        model_path: str | None = None,
+        encoder_cache: dict | None = None,
+    ):
+        """
+        Args:
+            model_path: Bundle to serve (default: MODEL_PATH from config)
+            encoder_cache: Optional dict shared between services: bundles
+                that use the same sentence-embedding model then share one
+                loaded encoder instead of loading a copy each (dashboard
+                with several models). The API serves one model and does
+                not need it.
+        """
         self._model_path = model_path or str(get_model_path())
+        self._encoder_cache = encoder_cache
         self._model = None
         self._vectorizer = None
         self._target_mapping = None
@@ -130,6 +144,12 @@ class ModelService:
             self._vectorizer, self._model
         )
 
+        # Reuse an encoder already loaded by another service (if shared)
+        encoder_key = self._encoder_key()
+        if encoder_key is not None and encoder_key in self._encoder_cache:
+            self._vectorizer._encoder = self._encoder_cache[encoder_key]
+            logger.info(f"Reusing loaded encoder {encoder_key[0]}")
+
         # Heavy encoders (sentence embeddings) load lazily; warm up here so
         # the first request does not pay the model-loading cost
         warmup = getattr(self._vectorizer, "warmup", None)
@@ -137,8 +157,24 @@ class ModelService:
             logger.info("Warming up vectorizer...")
             warmup()
 
+        if encoder_key is not None:
+            encoder = getattr(self._vectorizer, "_encoder", None)
+            if encoder is not None:
+                self._encoder_cache.setdefault(encoder_key, encoder)
+
         self._loaded = True
         logger.info(f"Model loaded: classes={self._class_names}")
+
+    def _encoder_key(self) -> tuple | None:
+        """Cache key of a sentence-embedding encoder, None if not shared."""
+        if self._encoder_cache is None:
+            return None
+        if not hasattr(self._vectorizer, "_get_encoder"):
+            return None  # TF-IDF / Count: nothing heavy to share
+        return (
+            getattr(self._vectorizer, "model_name", None),
+            getattr(self._vectorizer, "device", None),
+        )
 
     @staticmethod
     def _build_prediction_response(

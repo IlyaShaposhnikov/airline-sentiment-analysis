@@ -28,7 +28,7 @@ This project demonstrates a complete machine learning lifecycle: from raw data i
 | **Training & Evaluation** | Confidence-weighted learning, stratified splits, comprehensive metrics (F1, ROC-AUC, confusion matrix), auto-export to JSON/CSV, multi-seed comparison of feature extractors × classifiers |
 | **Interpretability** | Top contributing words per class, per-prediction explanations, SHAP fallback if package unavailable |
 | **API & Serving** | Async-safe FastAPI endpoints, Pydantic v2 validation, thread-safe model service, CORS, timeout handling |
-| **Dashboard** | Single/batch prediction UI, CSV/JSON export, real-time API health check, session state persistence |
+| **Dashboard** | Switch between all trained models in `artifacts/`, side-by-side model comparison on one text (prediction, confidence, latency), single/batch prediction, CSV/JSON export, API health check |
 | **Testing & CI** | Unit + integration tests, conditional PR/main workflows, pytest-timeout, pip-audit security checks, Codecov integration |
 
 ## Model Performance & Results
@@ -97,6 +97,7 @@ airline-sentiment-analysis/
 │   ├── torch_models.py          # PyTorch MLP classifier with a sklearn API (optional)
 │   ├── metrics.py               # Metrics computation & reporting
 │   ├── interpretability.py      # Weight/SHAP explanations
+│   ├── model_registry.py        # Finds trained bundles in artifacts/ for the dashboard (metadata only)
 │   ├── api/                     # FastAPI service layer
 │   │   ├── config.py            # API settings & env overrides
 │   │   ├── models.py            # Pydantic request/response schemas
@@ -116,6 +117,7 @@ airline-sentiment-analysis/
 │   ├── test_shap_values.py      # SHAP values mapped to the right words/class for every shap output format
 │   ├── test_api_model_info.py   # Model metadata in ModelService and /health
 │   ├── test_api_main.py         # API log level from config/env, 422 handler without deprecated constants
+│   ├── test_model_registry.py   # Bundle discovery/labels and one shared encoder for several models
 │   ├── test_compare.py          # Comparison script: outputs, embedding cache, binary mode
 │   ├── test_metrics.py          # Metric definitions (macro F1 in binary mode)
 │   ├── test_runtime.py          # Windows torch/scikit-learn OpenMP workaround and import order
@@ -197,6 +199,8 @@ Interactive docs: http://localhost:8000/docs
 streamlit run src/dashboard.py
 ```
 UI opens at: http://localhost:8501
+
+The sidebar lists every bundle in `artifacts/` (`artifacts/model_bundle.joblib` and `artifacts/<run>/model_bundle.joblib`, labelled from the run's `config_used.yaml` and `metrics.json`); the **Compare Models** tab runs the same text through several of them. Each model is loaded once and cached; bundles with the same embedding model share one encoder. The REST API still serves a single model (`MODEL_PATH`).
 
 ## Configuration
 
